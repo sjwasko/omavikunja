@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "id": "sjwasko.omavikunja",
+  "name": "Vikunja Projects",
+  "version": "1.1.0",
+  "author": "sjwasko",
+  "license": "MIT",
+  "description": "Your Vikunja todos in the bar, as a collapsible project tree or one chosen project.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Vikunja Projects",
+    "description": "Shows your next todo in the bar and your projects, nested and collapsible, on click",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "instance": "",
+      "viewMode": "tree",
+      "projectId": 0,
+      "includeSubprojects": true,
+      "hideEmptyProjects": true,
+      "showNoDate": true,
+      "showTitle": true,
+      "syncInterval": 300,
+      "iconStyle": "mono"
+    },
+    "schema": [
+      {
+        "key": "instance",
+        "type": "string",
+        "label": "Instance URL",
+        "defaultValue": "",
+        "description": "Base URL of your Vikunja instance, e.g. https://vikunja.example.com"
+      },
+      {
+        "key": "viewMode",
+        "type": "enum",
+        "label": "View",
+        "defaultValue": "tree",
+        "options": [
+          "tree",
+          "project",
+          "dates"
+        ],
+        "description": "tree: every project as a collapsible tree. project: only the chosen project. dates: one flat list grouped by due date."
+      },
+      {
+        "key": "projectId",
+        "type": "integer",
+        "label": "Project id",
+        "min": 0,
+        "max": 2147483647,
+        "step": 1,
+        "defaultValue": 0,
+        "description": "The project shown in \"One project\" view. Easier to pick from the panel's settings page."
+      },
+      {
+        "key": "includeSubprojects",
+        "type": "boolean",
+        "label": "Include sub-projects",
+        "defaultValue": true,
+        "description": "In \"One project\" view, also show todos from projects nested inside it."
+      },
+      {
+        "key": "hideEmptyProjects",
+        "type": "boolean",
+        "label": "Hide empty projects",
+        "defaultValue": true,
+        "description": "In the project tree, leave out projects with no open todos anywhere inside them."
+      },
+      {
+        "key": "showNoDate",
+        "type": "boolean",
+        "label": "Show todos without a due date",
+        "defaultValue": true,
+        "description": "Include tasks that have no due date."
+      },
+      {
+        "key": "showTitle",
+        "type": "boolean",
+        "label": "Show next task title in the bar",
+        "defaultValue": true,
+        "description": "Display the next task's title in the bar; when off, only a compact icon is shown."
+      },
+      {
+        "key": "syncInterval",
+        "type": "integer",
+        "label": "Sync interval (seconds)",
+        "min": 30,
+        "max": 86400,
+        "step": 15,
+        "defaultValue": 300,
+        "description": "How often the todo list refreshes automatically."
+      },
+      {
+        "key": "iconStyle",
+        "type": "enum",
+        "label": "Bar icon",
+        "options": [
+          "mono",
+          "color"
+        ],
+        "defaultValue": "mono",
+        "description": "mono: the Vikunja llama in your theme's bar color. color: the official blue Vikunja logo."
+      }
+    ]
+  }
+}

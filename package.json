@@ -1,0 +1,9 @@
+{
+  "name": "omavikunja",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "TZ=Europe/London node --test tests/*.test.mjs"
+  }
+}
