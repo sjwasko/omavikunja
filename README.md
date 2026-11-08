@@ -52,12 +52,28 @@ All screenshots use made-up demo data from `tools/fake-vikunja.py`.
 ## Install
 
 ```sh
-./install.sh            # copies into ~/.config/omarchy/plugins/sjwasko.omavikunja
-omarchy plugin enable sjwasko.omavikunja
+omarchy plugin add https://github.com/sjwasko/omavikunja.git --enable
 ```
 
-A token already stored by `org.jsongerber.vikunja` is picked up
-automatically. New tokens are saved under `service sjwasko.omavikunja`.
+Then open the panel, click the gear, and enter your Vikunja URL and an API
+token (Settings → API Tokens in Vikunja). The token is stored in your OS
+keyring, never in `shell.json`. A token already stored by
+`org.jsongerber.vikunja` is picked up automatically.
+
+Requires Vikunja 2.4+ (API v2), `curl`, `jq` and `secret-tool` (libsecret).
+
+## Remove
+
+```sh
+omarchy plugin remove sjwasko.omavikunja
+```
+
+Optionally clear the stored token and the saved show/hide state:
+
+```sh
+secret-tool clear service sjwasko.omavikunja
+rm -rf ~/.local/state/omarchy/sjwasko.omavikunja
+```
 
 ## Open it with a key
 
@@ -114,11 +130,10 @@ omarchy shell sjwasko.omavikunja toggle|open|close|settings|refresh|expandAll|co
 omarchy shell sjwasko.omavikunja view tree|project|dates
 ```
 
-Requires Vikunja 2.4+ (API v2), `curl`, `jq`, `secret-tool`.
-
 ## Development
 
 ```sh
+./install.sh                    # copy this checkout into ~/.config/omarchy/plugins
 npm test
 omarchy plugin validate .
 python3 tools/fake-vikunja.py   # local stand-in API with demo data on :8456
