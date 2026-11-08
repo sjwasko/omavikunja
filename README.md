@@ -132,8 +132,10 @@ omarchy shell sjwasko.omavikunja view tree|project|dates
 
 ## Development
 
+To try a local checkout, copy it into `~/.config/omarchy/plugins/sjwasko.omavikunja/`
+(the shell's plugin scan does not follow symlinks; saved changes hot-reload).
+
 ```sh
-./install.sh                    # copy this checkout into ~/.config/omarchy/plugins
 npm test
 omarchy plugin validate .
 python3 tools/fake-vikunja.py   # local stand-in API with demo data on :8456
