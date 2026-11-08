@@ -19,7 +19,9 @@ const TASK_FIELDS = "{id, title, done, due_date, priority, project_id, repeat_af
 const PROJECT_FIELDS = "{id, title, parent_project_id, is_archived, position, hex_color}"
 
 // The Vikunja API token travels via the VIKUNJA_TOKEN environment variable
-// (set on the Process), never argv, so it does not show up in `ps`.
+// (set on the Process), never argv. curl reads the Authorization header from
+// a bash process substitution (printf is a builtin), so the token shows up in
+// neither the shell's nor curl's command line in `ps`.
 export const TOKEN_ENV = "VIKUNJA_TOKEN"
 
 // The keyring service attribute the token is stored under.
@@ -81,7 +83,7 @@ function fetchItemsCommand(instance, path, query, fields) {
     "total_bytes=0",
     'out="[]"',
     'while [ "$page" -le "$total_pages" ] && [ "$page" -le ' + MAX_PAGES + ' ]; do',
-    '  resp="$(curl -sS --max-time 20 --max-filesize ' + curlCap + ' -w "%{http_code}" -H "Authorization: Bearer ${VIKUNJA_TOKEN}" "${instance}${path}?per_page=50&page=${page}${query}" | head -c ' + readCap + ')"',
+    '  resp="$(curl -sS --max-time 20 --max-filesize ' + curlCap + ' -w "%{http_code}" -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") "${instance}${path}?per_page=50&page=${page}${query}" | head -c ' + readCap + ')"',
     '  resp_bytes="$(printf "%s" "$resp" | wc -c)"',
     '  if [ "$resp_bytes" -gt ' + overflowCap + ' ]; then',
     '    printf "Vikunja response exceeds ' + pageCap + ' bytes for %s" "$path" >&2',
@@ -131,7 +133,7 @@ export function toggleDoneCommand(instance, id) {
   const script = [
     'instance="$1"',
     'id="$2"',
-    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" -X PATCH -H "Authorization: Bearer ${VIKUNJA_TOKEN}" -H "Content-Type: application/json" -d \'{"done":true}\' "${instance}/api/v2/tasks/${id}")" || exit 1',
+    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" -X PATCH -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") -H "Content-Type: application/json" -d \'{"done":true}\' "${instance}/api/v2/tasks/${id}")" || exit 1',
     'case "$code" in',
     '  200|201|204) exit 0 ;;',
     '  401) printf "Unauthorized (HTTP 401): check the API token" >&2 ;;',
@@ -155,7 +157,7 @@ export function testCommand(instance) {
   const script = [
     'instance="$1"',
     'errfile="$(mktemp)"',
-    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${VIKUNJA_TOKEN}" "${instance}/api/v2/tasks?per_page=1" 2>"$errfile")"',
+    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") "${instance}/api/v2/tasks?per_page=1" 2>"$errfile")"',
     'err="$(cat "$errfile")"; rm -f "$errfile"',
     'if [ "$code" = "200" ]; then printf "Connection OK"; exit 0; fi',
     'if [ -n "$err" ]; then printf "%s" "$err"',
@@ -179,7 +181,7 @@ export function createTaskCommand(instance, projectId, title) {
     'instance="$1"',
     'project="$2"',
     'body="$(jq -cn --arg t "$3" \'{title: $t}\')"',
-    'resp="$(curl -sS --max-time 20 --max-filesize 1048576 -w "%{http_code}" -X POST -H "Authorization: Bearer ${VIKUNJA_TOKEN}" -H "Content-Type: application/json" -d "$body" "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
+    'resp="$(curl -sS --max-time 20 --max-filesize 1048576 -w "%{http_code}" -X POST -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") -H "Content-Type: application/json" -d "$body" "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
     'code="${resp: -3}"',
     'if [ "$code" != "200" ] && [ "$code" != "201" ]; then printf "Could not add the todo (HTTP %s)" "$code" >&2; exit 1; fi',
     'printf "%s" "${resp%???}"'
