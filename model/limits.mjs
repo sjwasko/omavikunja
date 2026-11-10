@@ -1,7 +1,8 @@
 // Limits for untrusted Vikunja data; string sizes use UTF-16 code units.
 export const MAX_OUTPUT_CHARS = 4 * 1024 * 1024
 export const MAX_TASKS = 5000
-export const MAX_PROJECTS = 500
+// Same as the fetch can return (MAX_PAGES x 50 per page).
+export const MAX_PROJECTS = 5000
 // The panel only renders the first N open tasks; the rest stay counted in the
 // tooltip summary but are not instantiated as rows.
 export const MAX_DISPLAY_TASKS = 20

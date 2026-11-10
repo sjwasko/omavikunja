@@ -230,21 +230,34 @@ test("sync interval clamps to bounds and falls back to the default", () => {
   assert.equal(Model.normalizeSyncInterval("nonsense"), 300)
 })
 
-test("parseProjects maps project ids to titles", () => {
-  const map = Model.parseProjects(JSON.stringify([
+test("projectTitleMap maps project ids to titles", () => {
+  const map = Model.projectTitleMap(Model.parseProjectList(JSON.stringify([
     { id: 1, title: "Inbox" },
     { id: 2, title: "  Work  " },
-    { id: 3, title: "" },
+    { id: -3, title: "Saved filter" },
     null
-  ]))
+  ])))
 
   assert.equal(map["1"], "Inbox")
   assert.equal(map["2"], "Work")
-  assert.equal(map["3"], undefined)
+  assert.equal(map["-3"], undefined)
+})
+
+test("saved filters do not count toward the project cap", () => {
+  const filters = Array.from({ length: Model.MAX_PROJECTS }, (_, i) => ({ id: -(i + 1), title: "f" }))
+  const list = Model.parseProjectList(JSON.stringify(filters.concat([{ id: 1, title: "Inbox" }])))
+  assert.equal(list.length, 1)
+})
+
+test("priority 5 (do now) is kept and named", () => {
+  assert.equal(Model.normalizedTask({ id: 1, title: "x", priority: 5 }, {}).priority, 5)
+  assert.equal(Model.priorityName(5), "Do now")
+  assert.notEqual(Model.priorityGlyph(5), "")
+  assert.equal(Model.normalizedTask({ id: 1, title: "x", priority: 6 }, {}).priority, 0)
 })
 
 test("parseTasks attaches the project title as a subtitle", () => {
-  const projectTitles = Model.parseProjects(JSON.stringify([{ id: 1, title: "Inbox" }]))
+  const projectTitles = Model.projectTitleMap(Model.parseProjectList(JSON.stringify([{ id: 1, title: "Inbox" }])))
   const parsed = Model.parseTasks(JSON.stringify([
     task("In Inbox", { id: 5, project_id: 1 }),
     task("Orphan", { id: 6, project_id: 999 })

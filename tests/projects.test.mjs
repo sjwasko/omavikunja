@@ -236,6 +236,23 @@ test("every curl call ignores ~/.curlrc, is limited to http(s) and passes the UR
   }
 })
 
+test("fetch treats total_pages 0 (an empty result) as the last page", async (t) => {
+  const { spawnSync } = await import("node:child_process")
+  const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const dir = mkdtempSync(join(tmpdir(), "vikunja-fetch-"))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  writeFileSync(join(dir, "curl"), `#!/bin/bash\nprintf '{"items":[],"total_pages":0}200'\n`)
+  chmodSync(join(dir, "curl"), 0o755)
+  const argv = Model.boundedCommand(Model.tasksCommand("https://v.example"))
+  const r = spawnSync(argv[0], argv.slice(1), {
+    env: { ...process.env, PATH: dir + ":" + process.env.PATH, VIKUNJA_TOKEN: "t" }, encoding: "utf8"
+  })
+  assert.equal(r.status, 0, r.stderr)
+  assert.equal(r.stdout, "[]")
+})
+
 test("fetch fails on a curl error or a bad page count instead of returning an empty list", async (t) => {
   const { spawnSync } = await import("node:child_process")
   const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs")
@@ -245,7 +262,6 @@ test("fetch fails on a curl error or a bad page count instead of returning an em
     ["exit 63", "printf 200; exit 63", /exceeds/],
     ["exit 7", "echo 'curl: (7) refused' >&2; printf 000; exit 7", /refused/],
     ["bad total_pages", `printf '{"items":[],"total_pages":"a[$(touch /tmp/x)]"}200'`, /invalid page count/],
-    ["zero total_pages", `printf '{"items":[],"total_pages":0}200'`, /invalid page count/]
   ]
   for (const [name, body, err] of cases) {
     const dir = mkdtempSync(join(tmpdir(), "vikunja-fetch-"))

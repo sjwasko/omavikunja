@@ -12,7 +12,6 @@ export {
 export {
   normalizedTask,
   parseTasks,
-  parseProjects,
   insertTask,
   removeTask,
   normalizeNewTitle,

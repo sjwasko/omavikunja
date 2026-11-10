@@ -14,7 +14,8 @@ function text(value) {
 
 function normalizePriority(value) {
   const number = Math.floor(Number(value))
-  if (!isFinite(number) || number < 0 || number > 4) return 0
+  // Vikunja: 0 unset, 1 low, 2 medium, 3 high, 4 urgent, 5 do now.
+  if (!isFinite(number) || number < 0 || number > 5) return 0
   return number
 }
 
@@ -74,27 +75,6 @@ export function parseTasks(json, projectTitles) {
   }
   tasks.sort(compareTasks)
   return tasks
-}
-
-// Parse the merged projects array into an id -> title map for subtitles.
-export function parseProjects(json) {
-  const input = text(json)
-  assertOutputWithinLimit(input)
-  const parsed = JSON.parse(input)
-  if (!Array.isArray(parsed)) throw new Error("Vikunja output must be a JSON array")
-  if (parsed.length > MAX_PROJECTS) {
-    throw new Error("Vikunja output exceeds " + MAX_PROJECTS + " projects")
-  }
-
-  const map = Object.create(null)
-  for (let i = 0; i < parsed.length; i++) {
-    const project = parsed[i]
-    if (!project || typeof project !== "object") continue
-    const id = Number(project.id)
-    const title = clamped(project.title, MAX_TITLE_CHARS).trim()
-    if (isFinite(id) && title !== "") map[String(id)] = title
-  }
-  return map
 }
 
 // Merge one task returned by the create endpoint into an already-sorted list.

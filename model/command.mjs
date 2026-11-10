@@ -6,11 +6,11 @@ export const MAX_STDERR_BYTES = 4096
 // Hard caps on untrusted response size. MAX_PAGE_BYTES bounds a single API
 // response and MAX_TOTAL_BYTES bounds the sum across pages, so a hostile or
 // misconfigured endpoint can never make the shell buffer an unbounded body.
-export const MAX_PAGE_BYTES = 1024 * 1024
+export const MAX_PAGE_BYTES = 2 * 1024 * 1024
 // Raw bytes read across all pages. Each page is slimmed with jq before it is
 // merged, and the merged output must also stay under MAX_OUTPUT_CHARS, so a
 // hostile server cannot keep the merge loop busy for long.
-export const MAX_TOTAL_BYTES = 16 * 1024 * 1024
+export const MAX_TOTAL_BYTES = 32 * 1024 * 1024
 
 // Pages fetched at most (50 items each), matching MAX_TASKS.
 export const MAX_PAGES = 100
@@ -157,7 +157,8 @@ function fetchItemsCommand(instance, path, query, fields) {
     "  fi",
     '  total_pages="$(printf "%s" "$body" | jq -r ".total_pages // 1" 2>/dev/null)" || { printf "Vikunja returned invalid JSON for %s" "$path" >&2; exit 1; }',
     '  case "$total_pages" in ""|*[!0-9]*) printf "Vikunja returned an invalid page count for %s" "$path" >&2; exit 1 ;; esac',
-    '  if [ "$total_pages" -lt 1 ]; then printf "Vikunja returned an invalid page count for %s" "$path" >&2; exit 1; fi',
+    // An empty result can report 0 pages: there is nothing after this one.
+    '  if [ "$total_pages" -lt 1 ]; then total_pages=1; fi',
     '  out="$(printf "%s\\n%s" "$out" "$body" | jq -c -s ".[0] + ((.[1].items // [])[:50] | map($fields))" 2>/dev/null)" || { printf "Vikunja returned invalid JSON for %s" "$path" >&2; exit 1; }',
     '  if [ "${#out}" -gt ' + MAX_STDOUT_BYTES + ' ]; then printf "Vikunja response is too large for %s" "$path" >&2; exit 1; fi',
     '  page="$((page + 1))"',

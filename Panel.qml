@@ -113,7 +113,10 @@ Panel {
   }
 
   function startPaste(field) {
-    if (pasteProcess.running || !field || field.readOnly || !field.enabled) return
+    // pasteBusy holds from launch until the exit has been handled, so a late
+    // exit from a cancelled read can never be taken for this one's result.
+    if (pasteBusy || !field || field.readOnly || !field.enabled) return
+    pasteBusy = true
     pasteGeneration += 1
     pasteTarget = field
     pasteSnapshot = {
@@ -137,16 +140,18 @@ Panel {
     if (pasteTarget !== null && field === pasteTarget) cancelPaste()
   }
 
+  property bool pasteBusy: false
+
+  // Drops any pending result. The read itself is stopped but stays "busy"
+  // until its exit arrives (or the watchdog gives up on it).
   function cancelPaste() {
     pasteGeneration += 1
     pasteTarget = null
     pasteSnapshot = null
-    pasteWatchdog.stop()
     if (pasteProcess.running) pasteProcess.running = false
   }
 
   function finishPaste() {
-    pasteWatchdog.stop()
     var field = pasteTarget
     var snap = pasteSnapshot
     pasteTarget = null
@@ -175,15 +180,29 @@ Panel {
       id: pasteStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.finishPaste() }
+    onExited: function(exitCode) {
+      pasteWatchdog.stop()
+      root.pasteBusy = false
+      root.finishPaste()
+    }
   }
 
-  // Backstop for the command's own `timeout`: give up shortly after it.
+  // Backstop for the command's own `timeout`. First firing: the read is
+  // overdue, so drop its result and stop it. Second firing: its exit never
+  // arrived, so stop waiting for it and allow new pastes again.
   Timer {
     id: pasteWatchdog
     interval: (Model.DEADLINES.paste + 3) * 1000
     repeat: false
-    onTriggered: root.cancelPaste()
+    onTriggered: {
+      if (pasteProcess.running) {
+        root.cancelPaste()
+        pasteWatchdog.restart()
+      } else {
+        root.cancelPaste()
+        root.pasteBusy = false
+      }
+    }
   }
 
   function priorityColor(priority) {
@@ -192,6 +211,7 @@ Panel {
       case 2: return "#d2b14f"
       case 3: return "#e08f3c"
       case 4: return "#e05c5c"
+      case 5: return "#ff4d6d"
       default: return "transparent"
     }
   }

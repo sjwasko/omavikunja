@@ -103,6 +103,14 @@ BarWidget {
   //      watchdog backs that up: a process that never started, or never
   //      reported its exit, is finished with an error after the deadline so
   //      the widget cannot get stuck "running".
+  // A process counts as busy from launch until its exit has been handled,
+  // not just while it is running: if the watchdog stops one and its exit
+  // arrives late, nothing may relaunch it (and overwrite its forInstance) in
+  // between, or the late exit would be taken for the new run's result.
+  function busy(process) {
+    return process.running || process.deadlineAt > 0
+  }
+
   function launch(process, seconds) {
     var now = Date.now()
     process.launchedAt = now
@@ -146,7 +154,7 @@ BarWidget {
   }
 
   function refresh() {
-    if (secretProcess.running || tasksProcess.running || projectsProcess.running) return
+    if (busy(secretProcess) || busy(tasksProcess) || busy(projectsProcess)) return
     if (instance === "") {
       widgetState = "missing"
       token = ""
@@ -186,15 +194,22 @@ BarWidget {
     root.launch(projectsProcess, Model.DEADLINES.fetch)
   }
 
+  // Set when the project list could not be loaded; shown with the tasks.
+  property string projectsError: ""
+
   function finishProjects(exitCode) {
     if (exitCode === 0) {
       try {
         projects = Model.parseProjectList(projectsStdout.text || "")
         projectTitles = Model.projectTitleMap(projects)
         pickerProjects = Model.flatProjects(projects)
+        projectsError = ""
       } catch (error) {
-        // Keep the last good project list; task loading should still proceed.
+        // Keep the last good project list; task loading still proceeds.
+        projectsError = "Could not read the project list: " + error
       }
+    } else {
+      projectsError = "Could not load the project list from Vikunja."
     }
     tasksProcess.command = Model.boundedCommand(Model.withDeadline(Model.tasksCommand(instance), Model.DEADLINES.fetch))
     tasksProcess.environment = rootTokenEnv()
@@ -227,7 +242,7 @@ BarWidget {
   }
 
   function syncBusy() {
-    return secretProcess.running || tasksProcess.running || projectsProcess.running
+    return busy(secretProcess) || busy(tasksProcess) || busy(projectsProcess)
   }
 
   function requestSync() {
@@ -266,19 +281,24 @@ BarWidget {
       loadError = detail !== ""
         ? "Vikunja failed: " + detail
         : "Could not load todos from Vikunja."
-      setTasks([])
+      // Keep showing the last good list; a failed sync only reports.
       return
     }
     try {
       var parsed = Model.parseTasks(tasksStdout.text || "", projectTitles)
-      loadError = ""
+      loadError = projectsError
       allTasks = keepRecentlyAdded(dropRecentlyDone(parsed))
       tasksInstance = tasksProcess.forInstance
       rebuild()
     } catch (error) {
       loadError = "Vikunja returned unusable output: " + error
-      setTasks([])
     }
+  }
+
+  // The tasks the user has chosen to see: undated ones drop out when "Show
+  // todos without a due date" is off, for the bar, its tooltip and the views.
+  function visibleTasks() {
+    return showNoDate ? tasks : tasks.filter(function(t) { return t.dueMs !== null })
   }
 
   function setTasks(list) {
@@ -293,7 +313,7 @@ BarWidget {
     tasks = projectScoped
       ? Model.scopeTasks(allTasks, projects, projectId, includeSubprojects)
       : allTasks
-    next = Model.nextTodo(tasks, pendingDone)
+    next = Model.nextTodo(visibleTasks(), pendingDone)
 
     if (viewMode === Model.VIEW_TREE || (viewMode === Model.VIEW_PROJECT && !projectScoped)) {
       var open = Model.openTasks(tasks, pendingDone).filter(function(t) {
@@ -464,7 +484,7 @@ BarWidget {
   }
 
   function startNextToggle() {
-    if (toggleProcess.running || doneQueue.length === 0) return
+    if (busy(toggleProcess) || doneQueue.length === 0) return
     var id = doneQueue[0]
     doneQueue = doneQueue.slice(1)
     togglingId = id
@@ -495,16 +515,22 @@ BarWidget {
     Qt.callLater(startNextToggle)
   }
 
+  // Only a fetch that started before the task was marked done can still list
+  // it as open; later fetches are the server's word (a repeating task comes
+  // back open with its next due date and must show again).
   function dropRecentlyDone(list) {
     var cutoff = Date.now() - 10 * 60 * 1000
     var keep = {}
+    var stale = {}
     var any = false
     for (var key in recentlyDone) {
-      if (recentlyDone[key] >= cutoff) { keep[key] = recentlyDone[key]; any = true }
+      if (recentlyDone[key] < cutoff) continue
+      keep[key] = recentlyDone[key]
+      if (recentlyDone[key] > fetchStartedAt) { stale[key] = true; any = true }
     }
     recentlyDone = keep
     if (!any) return list
-    return list.filter(function(t) { return keep[t.id] === undefined })
+    return list.filter(function(t) { return stale[t.id] === undefined })
   }
 
   // ---- Adding todos. The created task comes back from the API and is merged
@@ -521,7 +547,7 @@ BarWidget {
   function addTask(projectId, title) {
     var text = Model.normalizeNewTitle(title)
     var target = Number(projectId) || defaultProjectId
-    if (text === "" || target <= 0 || token === "" || !tasksCurrent || createProcess.running) return false
+    if (text === "" || target <= 0 || token === "" || !tasksCurrent || busy(createProcess)) return false
     // Only projects loaded from the current instance can be targeted.
     if (projectTitles[String(target)] === undefined) return false
     addError = ""
@@ -600,7 +626,7 @@ BarWidget {
   // match the saved instance (it was rejected or not saved yet), nothing is
   // sent: a token typed for the new server must never go to the old one.
   function testConnection(tokenOverride, expectedInstance) {
-    if (testProcess.running || secretTestProcess.running) return
+    if (busy(testProcess) || busy(secretTestProcess)) return
     if (expectedInstance !== undefined && expectedInstance !== instance) {
       testStatus = "error"
       testMessage = "Fix the server address above first. Nothing was sent."
@@ -701,7 +727,7 @@ BarWidget {
   // travels via the VIKUNJA_TOKEN environment variable, never argv.
   function storeToken(instanceUrl, value) {
     var text = String(value || "").trim()
-    if (!Model.isValidToken(text) || tokenStoreProcess.running) return
+    if (!Model.isValidToken(text) || busy(tokenStoreProcess)) return
     var env = {}
     env[Model.TOKEN_ENV] = text
     tokenStoreProcess.environment = env
@@ -723,7 +749,8 @@ BarWidget {
     token = ""
     widgetState = "checking"
     loadError = ""
-    refresh()
+    // Queues behind a sync already in flight instead of being dropped.
+    requestSync()
   }
 
   // Shape used by shell panel routing and the popout coordinator.
@@ -776,7 +803,9 @@ BarWidget {
     id: syncTimer
     interval: root.syncInterval * 1000
     repeat: true
-    running: root.hasConfig
+    // Runs whenever an instance is set, so a keyring lookup that failed
+    // (locked keyring, Secret Service not up yet) is retried on its own.
+    running: root.instance !== ""
     onTriggered: root.refresh()
   }
 
@@ -1031,7 +1060,7 @@ BarWidget {
   readonly property string tooltipLine: {
     if (widgetState === "checking") return "Checking for Vikunja…"
     if (loadError !== "") return Model.plainLine(loadError)
-    var counts = Model.summaryCounts(tasks, now)
+    var counts = Model.summaryCounts(visibleTasks(), now)
     var scope = root.scopeTitle !== "" ? Model.plainLine(root.scopeTitle) + ": " : ""
     if (counts.open === 0) return scope + "No open todos"
     var parts = [scope + counts.open + " open"]

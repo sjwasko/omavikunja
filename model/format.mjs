@@ -82,6 +82,7 @@ export function priorityGlyph(priority) {
     case 2: return "▂"
     case 3: return "▄"
     case 4: return "▇"
+    case 5: return "█"
     default: return ""
   }
 }
@@ -92,6 +93,7 @@ export function priorityName(priority) {
     case 2: return "Medium"
     case 3: return "High"
     case 4: return "Urgent"
+    case 5: return "Do now"
     default: return ""
   }
 }

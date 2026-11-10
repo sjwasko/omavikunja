@@ -21,7 +21,12 @@ export function parseProjectList(json) {
   assertOutputWithinLimit(input)
   const parsed = JSON.parse(input)
   if (!Array.isArray(parsed)) throw new Error("Vikunja output must be a JSON array")
-  if (parsed.length > MAX_PROJECTS) {
+  // Saved filters (negative ids) are not projects and do not count.
+  let real = 0
+  for (let i = 0; i < parsed.length; i++) {
+    if (parsed[i] && Number(parsed[i].id) > 0) real++
+  }
+  if (real > MAX_PROJECTS) {
     throw new Error("Vikunja output exceeds " + MAX_PROJECTS + " projects")
   }
 
