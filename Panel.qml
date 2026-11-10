@@ -46,11 +46,13 @@ Panel {
     if (root.testStatus === "ok") tokenField.text = ""
   }
 
-  readonly property color accentColor: Color.accent
+  // Color.accent is undefined for a moment while the shell starts and the
+  // theme loads; fall back to the foreground until it is there.
+  readonly property color accentColor: Color.accent !== undefined ? Color.accent : contentForeground
   // Text-safe red: the theme's own red can be near-black on some themes,
   // which makes overdue labels unreadable. Matches the "Urgent" priority color.
   readonly property color urgentColor: "#e05c5c"
-  readonly property color contentForeground: bar ? bar.barForeground : Color.foreground
+  readonly property color contentForeground: bar ? bar.barForeground : (Color.foreground !== undefined ? Color.foreground : "#cacccc")
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
   function open() {
@@ -124,6 +126,15 @@ Panel {
     pasteProcess.command = Model.pasteCommand()
     pasteProcess.running = true
     pasteWatchdog.restart()
+  }
+
+  // Any change to the paste's target field while the clipboard is being read
+  // (an edit, cursor or selection move, focus loss) invalidates the pending
+  // result for good, even if the field is later restored to how it was. So
+  // does a change of instance, so a value read for one server can never land
+  // in a field after switching to another.
+  function invalidatePaste(field) {
+    if (pasteTarget !== null && field === pasteTarget) cancelPaste()
   }
 
   function cancelPaste() {
@@ -307,6 +318,7 @@ Panel {
   // A project picked for adding belongs to the old server; never carry it
   // over to a new one.
   onInstanceChanged: {
+    root.cancelPaste()
     root.addOpen = false
     root.addTarget = 0
     addField.text = ""
@@ -723,6 +735,11 @@ Panel {
               id: addField
               // Paste only through root.startPaste(); see the Paste section.
               Keys.onPressed: function(event) { root.interceptPaste(addField, event) }
+              onActiveFocusChanged: root.invalidatePaste(addField)
+              onTextChanged: root.invalidatePaste(addField)
+              onCursorPositionChanged: root.invalidatePaste(addField)
+              onSelectionStartChanged: root.invalidatePaste(addField)
+              onSelectionEndChanged: root.invalidatePaste(addField)
               QQC.ContextMenu.menu: null
               MouseArea {
                 anchors.fill: parent
@@ -777,6 +794,11 @@ Panel {
                   id: serverField
                   // Paste only through root.startPaste(); see the Paste section.
                   Keys.onPressed: function(event) { root.interceptPaste(serverField, event) }
+                  onActiveFocusChanged: root.invalidatePaste(serverField)
+                  onTextChanged: root.invalidatePaste(serverField)
+                  onCursorPositionChanged: root.invalidatePaste(serverField)
+                  onSelectionStartChanged: root.invalidatePaste(serverField)
+                  onSelectionEndChanged: root.invalidatePaste(serverField)
                   QQC.ContextMenu.menu: null
                   MouseArea {
                     anchors.fill: parent
@@ -785,7 +807,7 @@ Panel {
                   width: parent.width
                   placeholderText: "https://vikunja.example.com"
                   foreground: root.contentForeground
-                  accent: Color.accent
+                  accent: root.accentColor
                   font.family: root.contentFontFamily
                   onAccepted: root.saveServer()
                   onEditingFinished: root.saveServer()
@@ -821,6 +843,11 @@ Panel {
                   id: tokenField
                   // Paste only through root.startPaste(); see the Paste section.
                   Keys.onPressed: function(event) { root.interceptPaste(tokenField, event) }
+                  onActiveFocusChanged: root.invalidatePaste(tokenField)
+                  onTextChanged: root.invalidatePaste(tokenField)
+                  onCursorPositionChanged: root.invalidatePaste(tokenField)
+                  onSelectionStartChanged: root.invalidatePaste(tokenField)
+                  onSelectionEndChanged: root.invalidatePaste(tokenField)
                   QQC.ContextMenu.menu: null
                   MouseArea {
                     anchors.fill: parent
@@ -830,7 +857,7 @@ Panel {
                   password: true
                   placeholderText: "Paste token, then test connection"
                   foreground: root.contentForeground
-                  accent: Color.accent
+                  accent: root.accentColor
                   font.family: root.contentFontFamily
                   onAccepted: root.testConnection()
                 }
@@ -846,8 +873,8 @@ Panel {
                     id: tokenLink
                     text: "Generate an API token"
                     color: tokenLinkMouse.containsMouse
-                      ? Style.hoverStateColor(root.contentForeground, Color.accent)
-                      : Color.accent
+                      ? Style.hoverStateColor(root.contentForeground, root.accentColor)
+                      : root.accentColor
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.bodySmall
                     font.underline: true
@@ -889,7 +916,7 @@ Panel {
                   width: parent.width
                   text: root.testStatus === "running" ? "Testing…" : "Test connection"
                   selected: true
-                  accent: Color.accent
+                  accent: root.accentColor
                   foreground: root.contentForeground
                   fontFamily: root.contentFontFamily
                   fontSize: Style.font.bodySmall
@@ -930,7 +957,7 @@ Panel {
                   ]
                   value: root.viewMode
                   foreground: root.contentForeground
-                  accent: Color.accent
+                  accent: root.accentColor
                   fontFamily: root.contentFontFamily
                   fontSize: Style.font.bodySmall
                   onChanged: function(value) { root.setViewMode(value) }
@@ -1003,7 +1030,7 @@ Panel {
                         hasCursor: pickMouse.containsMouse
                         current: selected
                         foreground: root.contentForeground
-                        accent: Color.accent
+                        accent: root.accentColor
 
                         Rectangle {
                           id: pickDot
@@ -1038,7 +1065,7 @@ Panel {
                           anchors.verticalCenter: parent.verticalCenter
                           text: pickRow.selected ? "\uf00c" : ""
                           textFormat: Text.PlainText
-                          color: Color.accent
+                          color: root.accentColor
                           font.family: root.contentFontFamily
                           font.pixelSize: Style.font.bodySmall
                         }
@@ -1062,7 +1089,7 @@ Panel {
                   description: "Also show todos from projects nested inside the chosen one."
                   checked: root.hostWidget ? root.hostWidget.includeSubprojects : true
                   foreground: root.contentForeground
-                  accent: Color.accent
+                  accent: root.accentColor
                   fontFamily: root.contentFontFamily
                   onClicked: root.toggleIncludeSubprojects()
                 }
@@ -1076,7 +1103,7 @@ Panel {
                 description: "Leave out projects with no open todos anywhere inside them."
                 checked: root.hostWidget ? root.hostWidget.hideEmptyProjects : true
                 foreground: root.contentForeground
-                accent: Color.accent
+                accent: root.accentColor
                 fontFamily: root.contentFontFamily
                 onClicked: root.toggleHideEmptyProjects()
               }
@@ -1113,6 +1140,11 @@ Panel {
                     }
                     root.interceptPaste(intervalField, event)
                   }
+                  onActiveFocusChanged: root.invalidatePaste(intervalField)
+                  onTextChanged: root.invalidatePaste(intervalField)
+                  onCursorPositionChanged: root.invalidatePaste(intervalField)
+                  onSelectionStartChanged: root.invalidatePaste(intervalField)
+                  onSelectionEndChanged: root.invalidatePaste(intervalField)
                   QQC.ContextMenu.menu: null
                   MouseArea {
                     anchors.fill: parent
@@ -1137,7 +1169,7 @@ Panel {
                 description: "Include tasks that have no due date."
                 checked: root.hostWidget ? root.hostWidget.showNoDate : true
                 foreground: root.contentForeground
-                accent: Color.accent
+                accent: root.accentColor
                 fontFamily: root.contentFontFamily
                 onClicked: root.toggleShowNoDate()
               }
@@ -1149,7 +1181,7 @@ Panel {
                 description: "When off, the bar shows only a compact icon."
                 checked: root.showTitle
                 foreground: root.contentForeground
-                accent: Color.accent
+                accent: root.accentColor
                 fontFamily: root.contentFontFamily
                 onClicked: root.toggleShowTitle()
               }
@@ -1331,7 +1363,7 @@ Panel {
                   text: "Retry"
                   iconText: ""
                   selected: true
-                  accent: Color.accent
+                  accent: root.accentColor
                   foreground: root.contentForeground
                   fontFamily: root.contentFontFamily
                   fontSize: Style.font.bodySmall
@@ -1416,7 +1448,7 @@ Panel {
                   text: "Open settings"
                   iconText: ""
                   selected: true
-                  accent: Color.accent
+                  accent: root.accentColor
                   foreground: root.contentForeground
                   fontFamily: root.contentFontFamily
                   fontSize: Style.font.bodySmall
@@ -1440,7 +1472,7 @@ Panel {
               id: heroBlock
               width: parent.width
               radius: Style.cornerRadius
-              color: Style.normalFillFor(root.contentForeground, Color.accent)
+              color: Style.normalFillFor(root.contentForeground, root.accentColor)
               borderSpec: Border.none()
               implicitHeight: heroColumn.implicitHeight + Style.space(20)
 
@@ -1522,7 +1554,7 @@ Panel {
                     text: "Open"
                     iconText: ""
                     selected: true
-                    accent: Color.accent
+                    accent: root.accentColor
                     fontFamily: root.contentFontFamily
                     fontSize: Style.font.bodySmall
                     iconSize: Style.font.bodySmall
@@ -1660,7 +1692,7 @@ Panel {
                         onKeyedChanged: if (keyed) root.ensureVisible(taskRow)
                         hasCursor: rowMouse.containsMouse || keyed
                         foreground: root.contentForeground
-                        accent: Color.accent
+                        accent: root.accentColor
                         opacity: done ? 0.45 : 1.0
                         implicitHeight: Math.max(Style.space(32), taskLayout.implicitHeight + Style.space(8))
 

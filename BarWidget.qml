@@ -110,7 +110,8 @@ BarWidget {
     process.running = true
   }
 
-  readonly property var watchedProcesses: [secretProcess, projectsProcess, tasksProcess, toggleProcess,
+  readonly property var watchedProcesses: [stateDirProcess, collapseReadProcess,
+    secretProcess, projectsProcess, tasksProcess, toggleProcess,
     secretTestProcess, testProcess, createProcess, tokenStoreProcess]
 
   Timer {
@@ -154,7 +155,7 @@ BarWidget {
       return
     }
     if (token === "") {
-      secretProcess.command = Model.withDeadline(Model.secretLookupCommand(instance), Model.DEADLINES.lookup)
+      secretProcess.command = Model.boundedCommand(Model.withDeadline(Model.secretLookupCommand(instance), Model.DEADLINES.lookup))
       secretProcess.forInstance = instance
     root.launch(secretProcess, Model.DEADLINES.lookup)
       return
@@ -351,14 +352,34 @@ BarWidget {
   onHideEmptyProjectsChanged: rebuild()
   onShowNoDateChanged: rebuild()
 
+  // The state directory is created once at startup, under the same deadline
+  // and watchdog as the other helpers. If it cannot be created, roll-up state
+  // still works for this session but is not saved (reported once).
+  function prepareStateDir() {
+    stateDirProcess.command = Model.withDeadline(["mkdir", "-p", root.stateDir], Model.DEADLINES.state)
+    root.launch(stateDirProcess, Model.DEADLINES.state)
+  }
+
+  function warnCollapseNotSaved() {
+    if (collapseSaveWarned) return
+    collapseSaveWarned = true
+    Quickshell.execDetached(["notify-send", "-u", "low", "Vikunja",
+      "Could not save which projects are rolled up; they will reset on the next restart."])
+  }
+
   Process {
     id: stateDirProcess
-    command: ["mkdir", "-p", root.stateDir]
-    running: true
-    onExited: function(exitCode) {
-      root.stateDirReady = exitCode === 0
-      root.readCollapseFile()
+    running: false
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      root.stateDirReady = code === 0
+      if (code === 0) root.readCollapseFile()
+      else root.warnCollapseNotSaved()
     }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   // The FileView only writes (atomically) and watches the state file; it
@@ -373,22 +394,20 @@ BarWidget {
     atomicWrites: true
     printErrors: false
     onFileChanged: root.readCollapseFile()
-    onSaveFailed: {
-      if (root.collapseSaveWarned) return
-      root.collapseSaveWarned = true
-      Quickshell.execDetached(["notify-send", "-u", "low", "Vikunja",
-        "Could not save which projects are rolled up; they will reset on the next restart."])
-    }
+    onSaveFailed: root.warnCollapseNotSaved()
   }
 
   property bool collapseSaveWarned: false
 
   function readCollapseFile() {
     if (!stateDirReady) return
-    if (collapseReadProcess.running) { collapseReadPending = true; return }
-    collapseReadProcess.command = ["timeout", "5", "head", "-c", String(Model.MAX_COLLAPSE_FILE_CHARS + 1),
-      stateDir + "/collapsed.json"]
-    collapseReadProcess.running = true
+    // deadlineAt is set from launch until the exit is handled, so it also
+    // covers a process that was asked to start but has not started yet.
+    if (collapseReadProcess.deadlineAt > 0) { collapseReadPending = true; return }
+    collapseReadProcess.command = Model.withDeadline(
+      ["head", "-c", String(Model.MAX_COLLAPSE_FILE_CHARS + 1), stateDir + "/collapsed.json"],
+      Model.DEADLINES.state)
+    root.launch(collapseReadProcess, Model.DEADLINES.state)
   }
 
   property bool collapseReadPending: false
@@ -400,14 +419,22 @@ BarWidget {
       id: collapseReadStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) {
-      // A missing file (first run) reads as empty, which parses to no state.
-      root.collapseState = Model.parseCollapsedState(exitCode === 0 ? collapseReadStdout.text : "")
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      // 0: parse what was read. >0: no readable file (first run, or it was
+      // removed), so no saved state. -1 (never started or timed out): keep
+      // the state already in memory rather than guessing.
+      if (code === 0) root.collapseState = Model.parseCollapsedState(collapseReadStdout.text)
+      else if (code > 0) root.collapseState = Model.parseCollapsedState("")
       if (root.collapseReadPending) {
         root.collapseReadPending = false
         Qt.callLater(root.readCollapseFile)
       }
     }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   function openTask(task) {
@@ -599,7 +626,7 @@ BarWidget {
     if (token === "") {
       testStatus = "running"
       testMessage = "Reading API token from the keyring…"
-      secretTestProcess.command = Model.withDeadline(Model.secretLookupCommand(instance), Model.DEADLINES.lookup)
+      secretTestProcess.command = Model.boundedCommand(Model.withDeadline(Model.secretLookupCommand(instance), Model.DEADLINES.lookup))
       secretTestProcess.forInstance = instance
     root.launch(secretTestProcess, Model.DEADLINES.lookup)
       return
@@ -678,7 +705,7 @@ BarWidget {
     var env = {}
     env[Model.TOKEN_ENV] = text
     tokenStoreProcess.environment = env
-    tokenStoreProcess.command = Model.withDeadline(Model.storeTokenCommand(instanceUrl), Model.DEADLINES.store)
+    tokenStoreProcess.command = Model.boundedCommand(Model.withDeadline(Model.storeTokenCommand(instanceUrl), Model.DEADLINES.store))
     root.launch(tokenStoreProcess, Model.DEADLINES.store)
   }
 
@@ -1018,6 +1045,7 @@ BarWidget {
 
   Component.onCompleted: {
     now = new Date()
+    root.prepareStateDir()
     Qt.callLater(root.refresh)
   }
 }

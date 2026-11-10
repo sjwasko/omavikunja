@@ -55,7 +55,8 @@ export const DEADLINES = Object.freeze({
   toggle: 30,
   create: 30,
   test: 60,
-  paste: 3
+  paste: 3,
+  state: 5
 })
 
 export function withDeadline(argv, seconds) {
