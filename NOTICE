@@ -1,0 +1,39 @@
+Vikunja Projects (sjwasko.omavikunja)
+
+Licensing by file
+-----------------
+
+All files are MIT-licensed (see LICENSE) except:
+
+  vikunja-color.svg   AGPL-3.0-or-later
+  vikunja-mono.svg    AGPL-3.0-or-later
+
+Both are the Vikunja llama logo, copied from the Vikunja frontend:
+  https://github.com/go-vikunja/vikunja/blob/1da31cb36395e222459453965ddc195fd3973c17/frontend/src/assets/logo.svg
+The Vikunja frontend is licensed AGPL-3.0-or-later
+(https://github.com/go-vikunja/vikunja/blob/1da31cb36395e222459453965ddc195fd3973c17/frontend/LICENSE),
+and Vikunja publishes no separate license for its logo, so these two files
+remain under AGPL-3.0-or-later. The full license text is in
+LICENSES/AGPL-3.0.txt.
+
+  vikunja-color.svg   The logo's paths unchanged; a license comment added.
+  vikunja-mono.svg    Modified: the llama head only, as a single-color
+                      silhouette with the eyes and nose cut out, for tinting
+                      with the bar's theme color.
+
+The MIT-licensed code loads these files as images only; the logo files are
+separate works aggregated with it.
+
+"Vikunja" and the Vikunja logo are trademarks of their owners. This plugin is
+an unofficial integration and is not affiliated with or endorsed by the
+Vikunja project.
+
+Other credits
+-------------
+
+Based on jsongerber/omarchy-vikunja-bar (MIT, (c) 2026 jsongerber):
+  https://github.com/jsongerber/omarchy-vikunja-bar
+
+The wallpaper in preview.png and screenshots/ is "Dusk" from the Blade Runner
+Omarchy theme by Bernard Visagie (MIT, (c) 2026 Bernard Visagie):
+  https://github.com/BVisagie/omarchy-blade-runner-theme

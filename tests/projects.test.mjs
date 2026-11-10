@@ -260,3 +260,29 @@ test("fetch fails on a curl error or a bad page count instead of returning an em
     assert.match(r.stderr, err, name)
   }
 })
+
+test("helpers run under an overall deadline that kills the whole process group", () => {
+  const argv = Model.withDeadline(["bash", "-c", "true"], Model.DEADLINES.fetch)
+  assert.deepEqual(argv.slice(0, 4), ["timeout", "-k", "5", String(Model.DEADLINES.fetch)])
+  assert.deepEqual(argv.slice(4), ["bash", "-c", "true"])
+  assert.equal(Model.withDeadline(["x"], 0)[3], "1")
+  for (const key of ["lookup", "store", "fetch", "toggle", "create", "test", "paste"])
+    assert.ok(Model.DEADLINES[key] > 0, key)
+})
+
+test("a stuck helper is killed at its deadline", async () => {
+  const { spawnSync } = await import("node:child_process")
+  const t0 = Date.now()
+  const argv = Model.withDeadline(["bash", "-c", "sleep 30 & wait"], 1)
+  const r = spawnSync(argv[0], argv.slice(1))
+  assert.notEqual(r.status, 0)
+  assert.ok(Date.now() - t0 < 8000)
+})
+
+test("paste reads the clipboard with a byte cap and a deadline", () => {
+  const argv = Model.pasteCommand()
+  assert.equal(argv[0], "timeout")
+  assert.equal(argv[3], String(Model.DEADLINES.paste))
+  assert.ok(argv.join(" ").includes("head -c " + Model.MAX_PASTE_BYTES))
+  assert.ok(argv.join(" ").includes("wl-paste --no-newline --type text"))
+})

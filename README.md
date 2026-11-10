@@ -60,7 +60,7 @@ token (Settings → API Tokens in Vikunja). The token is stored in your OS
 keyring, never in `shell.json`. A token already stored by
 `org.jsongerber.vikunja` is picked up automatically.
 
-Requires Vikunja 2.4+ (API v2), `curl` 7.55+, `jq` and `secret-tool` (libsecret).
+Requires Vikunja 2.4+ (API v2), `curl` 7.55+, `jq`, `secret-tool` (libsecret) and `wl-paste` (wl-clipboard, for pasting into the panel; all ship with Omarchy).
 
 ## Remove
 
@@ -143,13 +143,23 @@ python3 tools/fake-vikunja.py   # local stand-in API with demo data on :8456
 
 ## Credits and license
 
-MIT; see [LICENSE](LICENSE). Based on
+The plugin's code is MIT; see [LICENSE](LICENSE). Based on
 [jsongerber/omarchy-vikunja-bar](https://github.com/jsongerber/omarchy-vikunja-bar)
-(MIT, © 2026 jsongerber).
+(MIT, © 2026 jsongerber). The two logo files are the exception; see below and
+[NOTICE](NOTICE).
 
-- The bar icon is the Vikunja llama logo, taken from Vikunja's own frontend.
-  Vikunja is a trademark of its owners; this plugin is an unofficial
-  integration, not affiliated with or endorsed by the Vikunja project.
+- The bar icons `vikunja-color.svg` and `vikunja-mono.svg` are the Vikunja
+  llama logo from Vikunja's frontend
+  ([`frontend/src/assets/logo.svg`](https://github.com/go-vikunja/vikunja/blob/1da31cb36395e222459453965ddc195fd3973c17/frontend/src/assets/logo.svg)),
+  which is licensed **AGPL-3.0-or-later**. Vikunja publishes no separate
+  license for the logo, so both files are distributed under AGPL-3.0-or-later
+  (full text in [LICENSES/AGPL-3.0.txt](LICENSES/AGPL-3.0.txt)), not MIT.
+  `vikunja-color.svg` is unmodified apart from a license comment;
+  `vikunja-mono.svg` is a modified version (the head only, as a single-color
+  silhouette with the eyes and nose cut out). They are separate files that
+  the MIT code only displays. Vikunja is a trademark of its owners; this
+  plugin is an unofficial integration, not affiliated with or endorsed by the
+  Vikunja project.
 - The wallpaper in `preview.png` and the screenshots is "Dusk" from the
   [Blade Runner Omarchy theme](https://github.com/BVisagie/omarchy-blade-runner-theme)
   by Bernard Visagie, MIT licensed (© 2026 Bernard Visagie).

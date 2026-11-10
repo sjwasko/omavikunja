@@ -1,6 +1,8 @@
 import QtQuick
+import QtQuick.Controls as QQC
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Model.mjs" as Model
@@ -84,7 +86,93 @@ Panel {
     if (!hostWidget) return
     root.saveServer()
     var typed = String(tokenField.text || "").trim()
-    hostWidget.testConnection(typed)
+    // Pass the address in the field; the host refuses to test (and sends
+    // nothing) unless it is the instance actually saved.
+    hostWidget.testConnection(typed, Model.normalizeInstance(String(serverField.text || "").trim()))
+  }
+
+  // ---- Paste. The text fields never read the clipboard themselves: Qt's
+  //      own paste reads the whole offer synchronously inside the shell, so a
+  //      huge or never-ending clipboard could stall it. Keyboard paste is
+  //      routed through `wl-paste | head -c` in a separate process with a
+  //      deadline; middle-click and context-menu paste are disabled. A result
+  //      is dropped if the field changed, lost focus, or the panel closed
+  //      while it was being read.
+  property var pasteTarget: null
+  property var pasteSnapshot: null
+  property int pasteGeneration: 0
+
+  function interceptPaste(field, event) {
+    var isPaste = event.matches(StandardKey.Paste)
+      || (event.key === Qt.Key_Insert && (event.modifiers & Qt.ShiftModifier))
+    if (!isPaste) return
+    event.accepted = true
+    startPaste(field)
+  }
+
+  function startPaste(field) {
+    if (pasteProcess.running || !field || field.readOnly || !field.enabled) return
+    pasteGeneration += 1
+    pasteTarget = field
+    pasteSnapshot = {
+      generation: pasteGeneration,
+      text: field.text,
+      cursor: field.cursorPosition,
+      selStart: field.selectionStart,
+      selEnd: field.selectionEnd
+    }
+    pasteProcess.command = Model.pasteCommand()
+    pasteProcess.running = true
+    pasteWatchdog.restart()
+  }
+
+  function cancelPaste() {
+    pasteGeneration += 1
+    pasteTarget = null
+    pasteSnapshot = null
+    pasteWatchdog.stop()
+    if (pasteProcess.running) pasteProcess.running = false
+  }
+
+  function finishPaste() {
+    pasteWatchdog.stop()
+    var field = pasteTarget
+    var snap = pasteSnapshot
+    pasteTarget = null
+    pasteSnapshot = null
+    if (!field || !snap || snap.generation !== pasteGeneration || !root.opened) return
+    if (!field.activeFocus || field.text !== snap.text || field.cursorPosition !== snap.cursor
+        || field.selectionStart !== snap.selStart || field.selectionEnd !== snap.selEnd) return
+    // Single-line fields: control characters and line breaks become spaces;
+    // the interval field only takes digits.
+    var clip = String(pasteStdout.text || "").replace(/[\u0000-\u001f\u007f]+/g, " ")
+    if (field === intervalField) clip = clip.replace(/[^0-9]+/g, "")
+    if (clip === "") return
+    var start = snap.selStart
+    var room = field.maximumLength - (field.text.length - (snap.selEnd - snap.selStart))
+    if (room <= 0) return
+    clip = clip.slice(0, room)
+    if (snap.selEnd > snap.selStart) field.remove(snap.selStart, snap.selEnd)
+    field.insert(start, clip)
+    field.cursorPosition = start + clip.length
+  }
+
+  Process {
+    id: pasteProcess
+    running: false
+    stdout: StdioCollector {
+      id: pasteStdout
+      waitForEnd: true
+    }
+    onExited: function(exitCode) { root.finishPaste() }
+  }
+
+  // Backstop for the command's own `timeout`: give up shortly after it.
+  Timer {
+    id: pasteWatchdog
+    interval: (Model.DEADLINES.paste + 3) * 1000
+    repeat: false
+    onTriggered: root.cancelPaste()
   }
 
   function priorityColor(priority) {
@@ -121,17 +209,18 @@ Panel {
   property string serverError: ""
 
   function saveServer() {
-    if (!root.hostWidget) return
+    if (!root.hostWidget) return false
     var typed = String(serverField.text || "").trim()
     var normalized = Model.normalizeInstance(typed)
     if (typed !== "" && normalized === "") {
       root.serverError = "Use a plain http:// or https:// address, without a username, password or query."
-      return
+      return false
     }
     root.serverError = ""
-    if (normalized === root.hostWidget.instance) return
+    if (normalized === root.hostWidget.instance) return true
     root.hostWidget.persistSettings({ instance: normalized })
     serverField.text = normalized
+    return true
   }
 
   function saveSyncInterval(value) {
@@ -139,6 +228,15 @@ Panel {
     var normalized = Model.normalizeSyncInterval(value)
     if (normalized !== root.hostWidget.syncInterval)
       root.hostWidget.persistSettings({ syncInterval: normalized })
+    // Show the clamped value that was actually saved.
+    intervalField.text = String(normalized)
+  }
+
+  function stepSyncInterval(delta) {
+    if (!root.hostWidget) return
+    var current = parseInt(intervalField.text, 10)
+    if (!isFinite(current)) current = root.hostWidget.syncInterval
+    saveSyncInterval(current + delta)
   }
 
   function toggleShowNoDate() {
@@ -205,6 +303,14 @@ Panel {
   //      project, else Inbox).
   property bool addOpen: false
   property int addTarget: 0
+
+  // A project picked for adding belongs to the old server; never carry it
+  // over to a new one.
+  onInstanceChanged: {
+    root.addOpen = false
+    root.addTarget = 0
+    addField.text = ""
+  }
   readonly property int effectiveAddTarget: addTarget > 0 ? addTarget
     : (hostWidget ? hostWidget.defaultProjectId : 0)
   readonly property string addTargetTitle: hostWidget ? hostWidget.projectTitle(effectiveAddTarget) : ""
@@ -414,8 +520,9 @@ Panel {
     root.showSettings = false
     root.addOpen = false
     addField.text = ""
-    // An unsaved token never outlives the panel.
+    // An unsaved token never outlives the panel, nor does a pending paste.
     tokenField.text = ""
+    root.cancelPaste()
     root.serverError = ""
     root.clearCursor()
   }
@@ -434,7 +541,7 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       blocked: serverField.activeFocus || tokenField.activeFocus
-        || intervalField.field.activeFocus
+        || intervalField.activeFocus
         || showNoDateToggle.activeFocus
         || showTitleToggle.activeFocus
         || viewGroup.activeFocus
@@ -614,6 +721,13 @@ Panel {
 
             TextField {
               id: addField
+              // Paste only through root.startPaste(); see the Paste section.
+              Keys.onPressed: function(event) { root.interceptPaste(addField, event) }
+              QQC.ContextMenu.menu: null
+              MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.MiddleButton
+              }
               width: parent.width
               placeholderText: root.adding ? "Adding…" : "What needs doing?"
               enabled: root.effectiveAddTarget > 0
@@ -661,6 +775,13 @@ Panel {
 
                 TextField {
                   id: serverField
+                  // Paste only through root.startPaste(); see the Paste section.
+                  Keys.onPressed: function(event) { root.interceptPaste(serverField, event) }
+                  QQC.ContextMenu.menu: null
+                  MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.MiddleButton
+                  }
                   width: parent.width
                   placeholderText: "https://vikunja.example.com"
                   foreground: root.contentForeground
@@ -698,6 +819,13 @@ Panel {
 
                 TextField {
                   id: tokenField
+                  // Paste only through root.startPaste(); see the Paste section.
+                  Keys.onPressed: function(event) { root.interceptPaste(tokenField, event) }
+                  QQC.ContextMenu.menu: null
+                  MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.MiddleButton
+                  }
                   width: parent.width
                   password: true
                   placeholderText: "Paste token, then test connection"
@@ -963,16 +1091,34 @@ Panel {
                   fontFamily: root.contentFontFamily
                 }
 
-                NumberField {
+                // A plain TextField rather than the kit's NumberField (an
+                // editable SpinBox), so paste can be routed through
+                // root.startPaste() like the other fields. Up/Down step by 15.
+                TextField {
                   id: intervalField
-                  value: root.hostWidget ? root.hostWidget.syncInterval : Model.SYNC_INTERVAL.defaultValue
-                  from: Model.SYNC_INTERVAL.min
-                  to: Model.SYNC_INTERVAL.max
-                  stepSize: 15
+                  width: Style.spacing.numberFieldWidth
+                  text: String(root.hostWidget ? root.hostWidget.syncInterval : Model.SYNC_INTERVAL.defaultValue)
+                  maximumLength: 5
+                  inputMethodHints: Qt.ImhDigitsOnly
+                  validator: IntValidator { bottom: 0; top: Model.SYNC_INTERVAL.max }
                   foreground: root.contentForeground
-                  accent: Color.accent
-                  fontFamily: root.contentFontFamily
-                  onModified: root.saveSyncInterval(value)
+                  accent: root.accentColor
+                  font.family: root.contentFontFamily
+                  // Paste only through root.startPaste(); see the Paste section.
+                  Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+                      event.accepted = true
+                      root.stepSyncInterval(event.key === Qt.Key_Up ? 15 : -15)
+                      return
+                    }
+                    root.interceptPaste(intervalField, event)
+                  }
+                  QQC.ContextMenu.menu: null
+                  MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.MiddleButton
+                  }
+                  onEditingFinished: root.saveSyncInterval(text)
                 }
 
                 Text {

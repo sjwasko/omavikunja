@@ -74,11 +74,58 @@ BarWidget {
   // is thrown away if that no longer matches, so a late keyring lookup or
   // connection test can never send the old token to the new instance. Queued
   // "mark done" clicks are dropped too: their task ids belong to the old server.
+  //
+  // Everything loaded from the old server is dropped as well, so no row from
+  // it stays on screen where a click could pair its task id with the new
+  // server. Task actions are refused until a fetch for the new instance
+  // succeeds (tasksInstance).
   onInstanceChanged: {
     if (token !== "") token = ""
     doneQueue = []
     pendingDone = ({})
+    tasksInstance = ""
+    allTasks = []
+    projects = []
+    projectTitles = ({})
+    pickerProjects = []
+    recentlyDone = ({})
+    recentlyAdded = ({})
     rebuild()
+  }
+
+  // The instance the current allTasks/projects were fetched from; "" until a
+  // fetch for the current instance succeeds.
+  property string tasksInstance: ""
+  readonly property bool tasksCurrent: tasksInstance !== "" && tasksInstance === instance
+
+  // ---- Every helper process gets an overall deadline. The command itself is
+  //      wrapped in `timeout` (which kills its whole process group), and this
+  //      watchdog backs that up: a process that never started, or never
+  //      reported its exit, is finished with an error after the deadline so
+  //      the widget cannot get stuck "running".
+  function launch(process, seconds) {
+    var now = Date.now()
+    process.launchedAt = now
+    process.deadlineAt = now + (seconds + 10) * 1000
+    process.running = true
+  }
+
+  readonly property var watchedProcesses: [secretProcess, projectsProcess, tasksProcess, toggleProcess,
+    secretTestProcess, testProcess, createProcess, tokenStoreProcess]
+
+  Timer {
+    interval: 2000
+    repeat: true
+    running: true
+    onTriggered: {
+      var now = Date.now()
+      for (var i = 0; i < root.watchedProcesses.length; i++) {
+        var p = root.watchedProcesses[i]
+        if (p.deadlineAt === 0) continue
+        if (!p.running && now - p.launchedAt > 5000) p.handleExit(-1)
+        else if (p.running && now > p.deadlineAt) p.running = false
+      }
+    }
   }
 
   // True (after cleaning up) when a finished Process was started for a
@@ -107,9 +154,9 @@ BarWidget {
       return
     }
     if (token === "") {
-      secretProcess.command = Model.secretLookupCommand(instance)
+      secretProcess.command = Model.withDeadline(Model.secretLookupCommand(instance), Model.DEADLINES.lookup)
       secretProcess.forInstance = instance
-    secretProcess.running = true
+    root.launch(secretProcess, Model.DEADLINES.lookup)
       return
     }
     startFetch()
@@ -132,10 +179,10 @@ BarWidget {
 
   function startFetch() {
     fetchStartedAt = Date.now()
-    projectsProcess.command = Model.boundedCommand(Model.projectsCommand(instance))
+    projectsProcess.command = Model.boundedCommand(Model.withDeadline(Model.projectsCommand(instance), Model.DEADLINES.fetch))
     projectsProcess.environment = rootTokenEnv()
     projectsProcess.forInstance = instance
-    projectsProcess.running = true
+    root.launch(projectsProcess, Model.DEADLINES.fetch)
   }
 
   function finishProjects(exitCode) {
@@ -148,10 +195,10 @@ BarWidget {
         // Keep the last good project list; task loading should still proceed.
       }
     }
-    tasksProcess.command = Model.boundedCommand(Model.tasksCommand(instance))
+    tasksProcess.command = Model.boundedCommand(Model.withDeadline(Model.tasksCommand(instance), Model.DEADLINES.fetch))
     tasksProcess.environment = rootTokenEnv()
     tasksProcess.forInstance = instance
-    tasksProcess.running = true
+    root.launch(tasksProcess, Model.DEADLINES.fetch)
   }
 
   // Processes that carried the token (or a new todo's title) in their
@@ -225,6 +272,7 @@ BarWidget {
       var parsed = Model.parseTasks(tasksStdout.text || "", projectTitles)
       loadError = ""
       allTasks = keepRecentlyAdded(dropRecentlyDone(parsed))
+      tasksInstance = tasksProcess.forInstance
       rebuild()
     } catch (error) {
       loadError = "Vikunja returned unusable output: " + error
@@ -309,22 +357,61 @@ BarWidget {
     running: true
     onExited: function(exitCode) {
       root.stateDirReady = exitCode === 0
-      collapseFile.reload()
+      root.readCollapseFile()
     }
   }
 
+  // The FileView only writes (atomically) and watches the state file; it
+  // never reads it. Reads go through `head -c`, so an oversized file is never
+  // loaded whole: anything over the cap is ignored.
   FileView {
     id: collapseFile
     path: root.stateDirReady ? root.stateDir + "/collapsed.json" : ""
+    preload: false
+    blockAllReads: true
     watchChanges: true
     atomicWrites: true
     printErrors: false
-    onLoaded: root.collapseState = Model.parseCollapsedState(text())
-    onFileChanged: reload()
+    onFileChanged: root.readCollapseFile()
+    onSaveFailed: {
+      if (root.collapseSaveWarned) return
+      root.collapseSaveWarned = true
+      Quickshell.execDetached(["notify-send", "-u", "low", "Vikunja",
+        "Could not save which projects are rolled up; they will reset on the next restart."])
+    }
+  }
+
+  property bool collapseSaveWarned: false
+
+  function readCollapseFile() {
+    if (!stateDirReady) return
+    if (collapseReadProcess.running) { collapseReadPending = true; return }
+    collapseReadProcess.command = ["timeout", "5", "head", "-c", String(Model.MAX_COLLAPSE_FILE_CHARS + 1),
+      stateDir + "/collapsed.json"]
+    collapseReadProcess.running = true
+  }
+
+  property bool collapseReadPending: false
+
+  Process {
+    id: collapseReadProcess
+    running: false
+    stdout: StdioCollector {
+      id: collapseReadStdout
+      waitForEnd: true
+    }
+    onExited: function(exitCode) {
+      // A missing file (first run) reads as empty, which parses to no state.
+      root.collapseState = Model.parseCollapsedState(exitCode === 0 ? collapseReadStdout.text : "")
+      if (root.collapseReadPending) {
+        root.collapseReadPending = false
+        Qt.callLater(root.readCollapseFile)
+      }
+    }
   }
 
   function openTask(task) {
-    if (!task) return
+    if (!task || !tasksCurrent) return
     Quickshell.execDetached(["xdg-open", instance + "/tasks/" + task.id])
   }
 
@@ -338,7 +425,7 @@ BarWidget {
   readonly property int doneQueueLength: doneQueue.length + (toggleProcess.running ? 1 : 0)
 
   function toggleDone(task) {
-    if (!task || token === "") return
+    if (!task || token === "" || !tasksCurrent) return
     var id = Number(task.id)
     if (pendingDone[id] === true) return
     // Optimistically mark the task done so it renders crossed immediately;
@@ -354,10 +441,10 @@ BarWidget {
     var id = doneQueue[0]
     doneQueue = doneQueue.slice(1)
     togglingId = id
-    toggleProcess.command = Model.boundedCommand(Model.toggleDoneCommand(instance, id))
+    toggleProcess.command = Model.boundedCommand(Model.withDeadline(Model.toggleDoneCommand(instance, id), Model.DEADLINES.toggle))
     toggleProcess.environment = rootTokenEnv()
     toggleProcess.forInstance = instance
-    toggleProcess.running = true
+    root.launch(toggleProcess, Model.DEADLINES.toggle)
   }
 
   function finishToggle(exitCode) {
@@ -407,17 +494,19 @@ BarWidget {
   function addTask(projectId, title) {
     var text = Model.normalizeNewTitle(title)
     var target = Number(projectId) || defaultProjectId
-    if (text === "" || target <= 0 || token === "" || createProcess.running) return false
+    if (text === "" || target <= 0 || token === "" || !tasksCurrent || createProcess.running) return false
+    // Only projects loaded from the current instance can be targeted.
+    if (projectTitles[String(target)] === undefined) return false
     addError = ""
     createProcess.addedProject = target
     // The title rides in the environment, like the token, so it stays out of ps.
     var request = Model.createTaskRequest(instance, target, text)
     var env = rootTokenEnv()
     for (var key in request.env) env[key] = request.env[key]
-    createProcess.command = Model.boundedCommand(request.command)
+    createProcess.command = Model.boundedCommand(Model.withDeadline(request.command, Model.DEADLINES.create))
     createProcess.environment = env
     createProcess.forInstance = instance
-    createProcess.running = true
+    root.launch(createProcess, Model.DEADLINES.create)
     return true
   }
 
@@ -454,7 +543,16 @@ BarWidget {
       id: createStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(createProcess); if (!root.staleResult(createProcess)) root.finishCreate(exitCode) }
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    // Runs once per launch: on exit, or from the watchdog if the process
+    // never started or never reported its exit.
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      root.dropSecrets(createProcess); if (!root.staleResult(createProcess)) root.finishCreate(code)
+    }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   function eventValue(value) {
@@ -471,8 +569,16 @@ BarWidget {
   // request. `tokenOverride` is the unsaved token still sitting in the
   // settings field; when present it is tested directly instead of the keyring.
   // Otherwise the cached token is used, or looked up from the keyring first.
-  function testConnection(tokenOverride) {
+  // `expectedInstance` is the address in the settings field. If it does not
+  // match the saved instance (it was rejected or not saved yet), nothing is
+  // sent: a token typed for the new server must never go to the old one.
+  function testConnection(tokenOverride, expectedInstance) {
     if (testProcess.running || secretTestProcess.running) return
+    if (expectedInstance !== undefined && expectedInstance !== instance) {
+      testStatus = "error"
+      testMessage = "Fix the server address above first. Nothing was sent."
+      return
+    }
     if (instance === "") {
       testStatus = "error"
       testMessage = "Set an instance URL first."
@@ -493,9 +599,9 @@ BarWidget {
     if (token === "") {
       testStatus = "running"
       testMessage = "Reading API token from the keyring…"
-      secretTestProcess.command = Model.secretLookupCommand(instance)
+      secretTestProcess.command = Model.withDeadline(Model.secretLookupCommand(instance), Model.DEADLINES.lookup)
       secretTestProcess.forInstance = instance
-    secretTestProcess.running = true
+    root.launch(secretTestProcess, Model.DEADLINES.lookup)
       return
     }
     runTest()
@@ -504,10 +610,10 @@ BarWidget {
   function runTest() {
     testStatus = "running"
     testMessage = "Testing connection…"
-    testProcess.command = Model.boundedCommand(Model.testCommand(instance))
+    testProcess.command = Model.boundedCommand(Model.withDeadline(Model.testCommand(instance), Model.DEADLINES.test))
     testProcess.environment = testTokenEnv()
     testProcess.forInstance = instance
-    testProcess.running = true
+    root.launch(testProcess, Model.DEADLINES.test)
   }
 
   function testTokenEnv() {
@@ -572,8 +678,8 @@ BarWidget {
     var env = {}
     env[Model.TOKEN_ENV] = text
     tokenStoreProcess.environment = env
-    tokenStoreProcess.command = Model.storeTokenCommand(instanceUrl)
-    tokenStoreProcess.running = true
+    tokenStoreProcess.command = Model.withDeadline(Model.storeTokenCommand(instanceUrl), Model.DEADLINES.store)
+    root.launch(tokenStoreProcess, Model.DEADLINES.store)
   }
 
   function finishStoreToken(exitCode) {
@@ -655,7 +761,16 @@ BarWidget {
       id: secretStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { if (!root.staleResult(secretProcess)) root.finishSecretLookup(exitCode) }
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    // Runs once per launch: on exit, or from the watchdog if the process
+    // never started or never reported its exit.
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      if (!root.staleResult(secretProcess)) root.finishSecretLookup(code)
+    }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   Process {
@@ -667,7 +782,16 @@ BarWidget {
       id: projectsStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(projectsProcess); if (!root.staleResult(projectsProcess)) root.finishProjects(exitCode) }
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    // Runs once per launch: on exit, or from the watchdog if the process
+    // never started or never reported its exit.
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      root.dropSecrets(projectsProcess); if (!root.staleResult(projectsProcess)) root.finishProjects(code)
+    }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   Process {
@@ -683,7 +807,16 @@ BarWidget {
       id: tasksStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(tasksProcess); if (!root.staleResult(tasksProcess)) root.finishFetch(exitCode) }
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    // Runs once per launch: on exit, or from the watchdog if the process
+    // never started or never reported its exit.
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      root.dropSecrets(tasksProcess); if (!root.staleResult(tasksProcess)) root.finishFetch(code)
+    }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   Process {
@@ -695,7 +828,16 @@ BarWidget {
       id: toggleStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(toggleProcess); if (!root.staleResult(toggleProcess)) root.finishToggle(exitCode) }
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    // Runs once per launch: on exit, or from the watchdog if the process
+    // never started or never reported its exit.
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      root.dropSecrets(toggleProcess); if (!root.staleResult(toggleProcess)) root.finishToggle(code)
+    }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   Process {
@@ -706,7 +848,16 @@ BarWidget {
       id: tokenStoreStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(tokenStoreProcess); root.finishStoreToken(exitCode) }
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    // Runs once per launch: on exit, or from the watchdog if the process
+    // never started or never reported its exit.
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      root.dropSecrets(tokenStoreProcess); root.finishStoreToken(code)
+    }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   Process {
@@ -717,7 +868,16 @@ BarWidget {
       id: secretTestStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { if (!root.staleResult(secretTestProcess)) root.finishSecretTest(exitCode) }
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    // Runs once per launch: on exit, or from the watchdog if the process
+    // never started or never reported its exit.
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      if (!root.staleResult(secretTestProcess)) root.finishSecretTest(code)
+    }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   Process {
@@ -729,7 +889,16 @@ BarWidget {
       id: testStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(testProcess); if (!root.staleResult(testProcess)) root.finishTest(exitCode) }
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    // Runs once per launch: on exit, or from the watchdog if the process
+    // never started or never reported its exit.
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      root.dropSecrets(testProcess); if (!root.staleResult(testProcess)) root.finishTest(code)
+    }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   Loader {

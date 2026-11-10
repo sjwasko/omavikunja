@@ -44,6 +44,34 @@ export const SECRET_SERVICE = "sjwasko.omavikunja"
 // so switching widgets does not mean pasting the token again.
 export const LEGACY_SECRET_SERVICE = "org.jsongerber.vikunja"
 
+// Overall deadlines in seconds. Every helper is wrapped in `timeout`, which
+// runs it in its own process group and kills the whole group (bash, curl, jq,
+// secret-tool) when the deadline passes; -k follows up with SIGKILL. The
+// keyring may wait on an unlock prompt, so lookup/store get the longest.
+export const DEADLINES = Object.freeze({
+  lookup: 120,
+  store: 120,
+  fetch: 180,
+  toggle: 30,
+  create: 30,
+  test: 60,
+  paste: 3
+})
+
+export function withDeadline(argv, seconds) {
+  return ["timeout", "-k", "5", String(Math.max(1, Math.floor(Number(seconds)) || 1))].concat(argv)
+}
+
+// Read the clipboard as plain text with a byte cap and a deadline, outside
+// the shell process, so a huge or never-ending clipboard offer cannot stall
+// or bloat the shell. Prints at most MAX_PASTE_BYTES.
+export const MAX_PASTE_BYTES = 4096
+
+export function pasteCommand() {
+  const script = 'wl-paste --no-newline --type text 2>/dev/null | head -c ' + MAX_PASTE_BYTES
+  return withDeadline(["bash", "-c", script, "vikunja-paste"], DEADLINES.paste)
+}
+
 // Cap both pipes while preserving producer failures, same as the caldir widget.
 export function boundedCommand(argv) {
   const script = "set -o pipefail; " +
