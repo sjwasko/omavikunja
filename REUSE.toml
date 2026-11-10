@@ -1,0 +1,24 @@
+# Machine-readable per-file licensing (REUSE 3.3). Check with `reuse lint`.
+# Everything is MIT except the two Vikunja logo SVGs; see NOTICE.
+version = 1
+
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = ["2026 jsongerber", "2026 sjwasko"]
+SPDX-License-Identifier = "MIT"
+
+# The Vikunja llama logo, from Vikunja's frontend (AGPL-3.0-or-later).
+[[annotations]]
+path = ["vikunja-color.svg", "vikunja-mono.svg"]
+precedence = "override"
+SPDX-FileCopyrightText = "Vikunja contributors <https://github.com/go-vikunja/vikunja>"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# Screenshots and preview: plugin UI (MIT) over the Blade Runner theme's
+# "Dusk" wallpaper (MIT, Bernard Visagie).
+[[annotations]]
+path = ["preview.png", "screenshots/**"]
+precedence = "override"
+SPDX-FileCopyrightText = ["2026 sjwasko", "2026 Bernard Visagie"]
+SPDX-License-Identifier = "MIT"

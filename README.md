@@ -141,6 +141,14 @@ omarchy plugin validate .
 python3 tools/fake-vikunja.py   # local stand-in API with demo data on :8456
 ```
 
+`npm run audit` runs the full pre-release check: the tests, ShellCheck on
+every bash script the widget runs (`tools/shellcheck-scripts.mjs`), a runtime
+check under `strace` that no token or todo title ever appears in any process's
+command line (`tools/argv-audit.mjs`), `reuse lint` for per-file licensing,
+gitleaks over the full history, and Semgrep's JavaScript, command-injection
+and secrets rules. It needs `shellcheck`, `strace`, `reuse`, `gitleaks` and
+`semgrep`.
+
 ## Credits and license
 
 The plugin's code is MIT; see [LICENSE](LICENSE). Based on
@@ -153,7 +161,7 @@ The plugin's code is MIT; see [LICENSE](LICENSE). Based on
   ([`frontend/src/assets/logo.svg`](https://github.com/go-vikunja/vikunja/blob/1da31cb36395e222459453965ddc195fd3973c17/frontend/src/assets/logo.svg)),
   which is licensed **AGPL-3.0-or-later**. Vikunja publishes no separate
   license for the logo, so both files are distributed under AGPL-3.0-or-later
-  (full text in [LICENSES/AGPL-3.0.txt](LICENSES/AGPL-3.0.txt)), not MIT.
+  (full text in [LICENSES/AGPL-3.0-or-later.txt](LICENSES/AGPL-3.0-or-later.txt)), not MIT.
   `vikunja-color.svg` is unmodified apart from a license comment;
   `vikunja-mono.svg` is a modified version (the head only, as a single-color
   silhouette with the eyes and nose cut out). They are separate files that

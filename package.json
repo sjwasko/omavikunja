@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "TZ=Europe/London node --test tests/*.test.mjs"
+    "test": "TZ=Europe/London node --test tests/*.test.mjs",
+    "audit": "npm test && node tools/shellcheck-scripts.mjs && node tools/argv-audit.mjs && reuse lint -q && gitleaks git --redact --no-banner . && semgrep scan --metrics=off --disable-version-check --error --quiet --config p/javascript --config p/command-injection --config p/secrets --exclude reports --exclude research_notes --exclude screenshots ."
   }
 }
