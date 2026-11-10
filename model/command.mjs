@@ -8,21 +8,31 @@ export const MAX_STDERR_BYTES = 4096
 // misconfigured endpoint can never make the shell buffer an unbounded body.
 export const MAX_PAGE_BYTES = 1024 * 1024
 // Raw bytes read across all pages. Each page is slimmed with jq before it is
-// merged, so the merged output (bounded by MAX_OUTPUT_CHARS) is far smaller.
-export const MAX_TOTAL_BYTES = 64 * 1024 * 1024
+// merged, and the merged output must also stay under MAX_OUTPUT_CHARS, so a
+// hostile server cannot keep the merge loop busy for long.
+export const MAX_TOTAL_BYTES = 16 * 1024 * 1024
 
 // Pages fetched at most (50 items each), matching MAX_TASKS.
 export const MAX_PAGES = 100
 
 // Only the fields the widget reads are kept from each API item.
-const TASK_FIELDS = "{id, title, done, due_date, priority, project_id, repeat_after, repeat_mode}"
-const PROJECT_FIELDS = "{id, title, parent_project_id, is_archived, position, hex_color}"
+// Titles are cut to 500 characters here, before merging, so long titles cannot
+// inflate the merged output.
+const TITLE_FIELD = 'title: (.title // "" | tostring | .[:500])'
+const TASK_FIELDS = "{id, " + TITLE_FIELD + ", done, due_date, priority, project_id, repeat_after, repeat_mode}"
+const PROJECT_FIELDS = "{id, " + TITLE_FIELD + ", parent_project_id, is_archived, position, hex_color}"
 
 // The Vikunja API token travels via the VIKUNJA_TOKEN environment variable
 // (set on the Process), never argv. curl reads the Authorization header from
 // a bash process substitution (printf is a builtin), so the token shows up in
 // neither the shell's nor curl's command line in `ps`.
 export const TOKEN_ENV = "VIKUNJA_TOKEN"
+
+// Every request starts like this. -q (must come first) ignores ~/.curlrc so
+// a stray -L or --trace there cannot change behavior; only http(s) is allowed,
+// including on redirects (which are not followed anyway, so the token never
+// goes to another host). URLs are always passed with --url.
+const CURL = "curl -q -sS --proto =http,https --proto-redir =http,https --max-time 20"
 
 // The one curl argument that carries the token. `-H @file` needs curl 7.55+.
 const AUTH_HEADER = '-H @<(printf "Authorization: Bearer %s\\n" "${' + TOKEN_ENV + '}")'
@@ -86,12 +96,17 @@ function fetchItemsCommand(instance, path, query, fields) {
     "total_bytes=0",
     'out="[]"',
     'while [ "$page" -le "$total_pages" ] && [ "$page" -le ' + MAX_PAGES + ' ]; do',
-    '  resp="$(curl -sS --max-time 20 --max-filesize ' + curlCap + ' -w "%{http_code}" ' + AUTH_HEADER + ' "${instance}${path}?per_page=50&page=${page}${query}" | head -c ' + readCap + ')"',
+    '  resp="$(' + CURL + ' --max-filesize ' + curlCap + ' -w "%{http_code}" ' + AUTH_HEADER + ' --url "${instance}${path}?per_page=50&page=${page}${query}" | head -c ' + readCap + '; exit "${PIPESTATUS[0]}")"',
+    '  rc=$?',
     '  resp_bytes="$(printf "%s" "$resp" | wc -c)"',
     '  if [ "$resp_bytes" -gt ' + overflowCap + ' ]; then',
     '    printf "Vikunja response exceeds ' + pageCap + ' bytes for %s" "$path" >&2',
     "    exit 1",
     "  fi",
+    // curl exits 63 when a declared Content-Length is over the cap, before
+    // reading any body; any other failure (DNS, TLS, timeout) also stops here.
+    '  if [ "$rc" -eq 63 ]; then printf "Vikunja response exceeds ' + pageCap + ' bytes for %s" "$path" >&2; exit 1; fi',
+    '  if [ "$rc" -ne 0 ]; then exit 1; fi',
     '  code="${resp: -3}"',
     '  body="${resp%???}"',
     '  if [ "$code" != "200" ]; then',
@@ -99,7 +114,7 @@ function fetchItemsCommand(instance, path, query, fields) {
     '      401) printf "Unauthorized (HTTP 401) — check the API token" >&2 ;;',
     '      403) printf "Forbidden (HTTP 403) — the token lacks access" >&2 ;;',
     '      404)',
-    '        v1="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" "${instance}/api/v1/info")"',
+    '        v1="$(' + CURL + ' -o /dev/null -w "%{http_code}" --url "${instance}/api/v1/info")"',
     '        if [ "$v1" = "200" ]; then printf "Vikunja is running API v1 — update your instance (this widget requires API v2, Vikunja 2.4+)" >&2;',
     '        else printf "Not a Vikunja instance (HTTP 404)" >&2; fi ;;',
     '      *) printf "HTTP %s from %s" "$code" "$path" >&2 ;;',
@@ -111,8 +126,11 @@ function fetchItemsCommand(instance, path, query, fields) {
     '    printf "Vikunja response exceeds ' + totalCap + ' bytes across pages" >&2',
     "    exit 1",
     "  fi",
-    '  total_pages="$(printf "%s" "$body" | jq -r ".total_pages // 1")"',
-    '  out="$(printf "%s\\n%s" "$out" "$body" | jq -c -s ".[0] + (.[1].items // [] | map($fields))" 2>/dev/null)" || { printf "Vikunja returned invalid JSON for %s" "$path" >&2; exit 1; }',
+    '  total_pages="$(printf "%s" "$body" | jq -r ".total_pages // 1" 2>/dev/null)" || { printf "Vikunja returned invalid JSON for %s" "$path" >&2; exit 1; }',
+    '  case "$total_pages" in ""|*[!0-9]*) printf "Vikunja returned an invalid page count for %s" "$path" >&2; exit 1 ;; esac',
+    '  if [ "$total_pages" -lt 1 ]; then printf "Vikunja returned an invalid page count for %s" "$path" >&2; exit 1; fi',
+    '  out="$(printf "%s\\n%s" "$out" "$body" | jq -c -s ".[0] + ((.[1].items // [])[:50] | map($fields))" 2>/dev/null)" || { printf "Vikunja returned invalid JSON for %s" "$path" >&2; exit 1; }',
+    '  if [ "${#out}" -gt ' + MAX_STDOUT_BYTES + ' ]; then printf "Vikunja response is too large for %s" "$path" >&2; exit 1; fi',
     '  page="$((page + 1))"',
     "done",
     "printf '%s' \"$out\""
@@ -136,7 +154,7 @@ export function toggleDoneCommand(instance, id) {
   const script = [
     'instance="$1"',
     'id="$2"',
-    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" -X PATCH ' + AUTH_HEADER + ' -H "Content-Type: application/json" -d \'{"done":true}\' "${instance}/api/v2/tasks/${id}")" || exit 1',
+    'code="$(' + CURL + ' -o /dev/null -w "%{http_code}" -X PATCH ' + AUTH_HEADER + ' -H "Content-Type: application/json" -d \'{"done":true}\' --url "${instance}/api/v2/tasks/${id}")" || exit 1',
     'case "$code" in',
     '  200|201|204) exit 0 ;;',
     '  401) printf "Unauthorized (HTTP 401): check the API token" >&2 ;;',
@@ -160,14 +178,15 @@ export function testCommand(instance) {
   const script = [
     'instance="$1"',
     'errfile="$(mktemp)"',
-    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" ' + AUTH_HEADER + ' "${instance}/api/v2/tasks?per_page=1" 2>"$errfile")"',
+    'trap \'rm -f "$errfile"\' EXIT',
+    'code="$(' + CURL + ' -o /dev/null -w "%{http_code}" ' + AUTH_HEADER + ' --url "${instance}/api/v2/tasks?per_page=1" 2>"$errfile")"',
     'err="$(cat "$errfile")"; rm -f "$errfile"',
     'if [ "$code" = "200" ]; then printf "Connection OK"; exit 0; fi',
     'if [ -n "$err" ]; then printf "%s" "$err"',
     'elif [ "$code" = "401" ]; then printf "Unauthorized: check the API token"',
     'elif [ "$code" = "403" ]; then printf "Forbidden: the token lacks access"',
     'elif [ "$code" = "404" ]; then',
-    '  v1="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" "${instance}/api/v1/info")"',
+    '  v1="$(' + CURL + ' -o /dev/null -w "%{http_code}" --url "${instance}/api/v1/info")"',
     '  if [ "$v1" = "200" ]; then printf "Vikunja is running API v1 — update your instance (this widget requires API v2, Vikunja 2.4+)"',
     '  else printf "Not a Vikunja instance (HTTP 404)"; fi',
     'else printf "HTTP %s" "$code"; fi',
@@ -192,7 +211,7 @@ export function createTaskRequest(instance, projectId, title) {
     'project="$2"',
     '[ -n "${' + TITLE_ENV + '}" ] || { printf "Could not add the todo (empty title)" >&2; exit 1; }',
     'body="$(jq -cn \'{title: env.' + TITLE_ENV + '}\')" && [ -n "$body" ] || { printf "Could not add the todo (jq failed)" >&2; exit 1; }',
-    'resp="$(curl -sS --max-time 20 --max-filesize 1048576 -w "%{http_code}" -X POST ' + AUTH_HEADER + ' -H "Content-Type: application/json" --data-binary @<(printf "%s" "$body") "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
+    'resp="$(' + CURL + ' --max-filesize 1048576 -w "%{http_code}" -X POST ' + AUTH_HEADER + ' -H "Content-Type: application/json" --data-binary @<(printf "%s" "$body") --url "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
     'code="${resp: -3}"',
     'if [ "$code" != "200" ] && [ "$code" != "201" ]; then printf "Could not add the todo (HTTP %s)" "$code" >&2; exit 1; fi',
     'printf "%s" "${resp%???}"'

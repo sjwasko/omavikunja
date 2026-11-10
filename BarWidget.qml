@@ -68,8 +68,33 @@ BarWidget {
   // from the previous instance is invalid once the URL changes. Drop it so the
   // next refresh re-reads the keyring (or shows the "no token" setup screen)
   // instead of firing the old token at the new instance.
+  //
+  // Requests already running for the old instance are left to finish, but each
+  // Process remembers the instance it started for (forInstance) and its result
+  // is thrown away if that no longer matches, so a late keyring lookup or
+  // connection test can never send the old token to the new instance. Queued
+  // "mark done" clicks are dropped too: their task ids belong to the old server.
   onInstanceChanged: {
     if (token !== "") token = ""
+    doneQueue = []
+    pendingDone = ({})
+    rebuild()
+  }
+
+  // True (after cleaning up) when a finished Process was started for a
+  // different instance than the current one.
+  function staleResult(process) {
+    if (process.forInstance === instance) return false
+    if (process === toggleProcess) {
+      togglingId = 0
+      Qt.callLater(startNextToggle)
+    } else if (process === testProcess || process === secretTestProcess) {
+      testToken = ""
+      resetTest()
+    } else if (process !== createProcess) {
+      Qt.callLater(refresh)
+    }
+    return true
   }
 
   function refresh() {
@@ -83,7 +108,8 @@ BarWidget {
     }
     if (token === "") {
       secretProcess.command = Model.secretLookupCommand(instance)
-      secretProcess.running = true
+      secretProcess.forInstance = instance
+    secretProcess.running = true
       return
     }
     startFetch()
@@ -91,7 +117,7 @@ BarWidget {
 
   function finishSecretLookup(exitCode) {
     var value = String(secretStdout.text || "").trim()
-    if (exitCode !== 0 || value === "") {
+    if (exitCode !== 0 || !Model.isValidToken(value)) {
       widgetState = "missing"
       token = ""
       loadError = "Vikunja token not found in the keyring.\nOpen the settings (gear icon) to store your API token."
@@ -108,6 +134,7 @@ BarWidget {
     fetchStartedAt = Date.now()
     projectsProcess.command = Model.boundedCommand(Model.projectsCommand(instance))
     projectsProcess.environment = rootTokenEnv()
+    projectsProcess.forInstance = instance
     projectsProcess.running = true
   }
 
@@ -123,6 +150,7 @@ BarWidget {
     }
     tasksProcess.command = Model.boundedCommand(Model.tasksCommand(instance))
     tasksProcess.environment = rootTokenEnv()
+    tasksProcess.forInstance = instance
     tasksProcess.running = true
   }
 
@@ -328,6 +356,7 @@ BarWidget {
     togglingId = id
     toggleProcess.command = Model.boundedCommand(Model.toggleDoneCommand(instance, id))
     toggleProcess.environment = rootTokenEnv()
+    toggleProcess.forInstance = instance
     toggleProcess.running = true
   }
 
@@ -338,7 +367,7 @@ BarWidget {
       var detail = Model.truncate(String(toggleStderr.text || "").trim(), 200)
       Quickshell.execDetached([
         "notify-send", "-u", "low", "Vikunja",
-        detail !== "" ? detail : "Could not mark the todo as done."
+        Model.escapeMarkup(detail !== "" ? detail : "Could not mark the todo as done.")
       ])
     } else {
       // Only open tasks are fetched, so a done task simply leaves the list;
@@ -387,6 +416,7 @@ BarWidget {
     for (var key in request.env) env[key] = request.env[key]
     createProcess.command = Model.boundedCommand(request.command)
     createProcess.environment = env
+    createProcess.forInstance = instance
     createProcess.running = true
     return true
   }
@@ -412,6 +442,7 @@ BarWidget {
 
   Process {
     id: createProcess
+    property string forInstance: ""
     property int addedProject: 0
     running: false
     clearEnvironment: false
@@ -423,7 +454,7 @@ BarWidget {
       id: createStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(createProcess); root.finishCreate(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(createProcess); if (!root.staleResult(createProcess)) root.finishCreate(exitCode) }
   }
 
   function eventValue(value) {
@@ -450,6 +481,11 @@ BarWidget {
     var candidate = tokenOverride === undefined || tokenOverride === null
       ? "" : String(tokenOverride).trim()
     if (candidate !== "") {
+      if (!Model.isValidToken(candidate)) {
+        testStatus = "error"
+        testMessage = "That doesn't look like an API token (it contains spaces or control characters)."
+        return
+      }
       testToken = candidate
       runTest()
       return
@@ -458,7 +494,8 @@ BarWidget {
       testStatus = "running"
       testMessage = "Reading API token from the keyring…"
       secretTestProcess.command = Model.secretLookupCommand(instance)
-      secretTestProcess.running = true
+      secretTestProcess.forInstance = instance
+    secretTestProcess.running = true
       return
     }
     runTest()
@@ -469,6 +506,7 @@ BarWidget {
     testMessage = "Testing connection…"
     testProcess.command = Model.boundedCommand(Model.testCommand(instance))
     testProcess.environment = testTokenEnv()
+    testProcess.forInstance = instance
     testProcess.running = true
   }
 
@@ -480,7 +518,7 @@ BarWidget {
 
   function finishSecretTest(exitCode) {
     var value = String(secretTestStdout.text || "").trim()
-    if (exitCode !== 0 || value === "") {
+    if (exitCode !== 0 || !Model.isValidToken(value)) {
       testStatus = "error"
       testMessage = "API token not found in the keyring. Paste it above and try again."
       return
@@ -530,7 +568,7 @@ BarWidget {
   // travels via the VIKUNJA_TOKEN environment variable, never argv.
   function storeToken(instanceUrl, value) {
     var text = String(value || "").trim()
-    if (text === "" || tokenStoreProcess.running) return
+    if (!Model.isValidToken(text) || tokenStoreProcess.running) return
     var env = {}
     env[Model.TOKEN_ENV] = text
     tokenStoreProcess.environment = env
@@ -543,9 +581,9 @@ BarWidget {
       var detail = Model.truncate(String(tokenStoreStderr.text || "").trim(), 200)
       Quickshell.execDetached([
         "notify-send", "-u", "critical", "Vikunja",
-        detail !== ""
+        Model.escapeMarkup(detail !== ""
           ? "Could not store the API token in the keyring: " + detail
-          : "Could not store the API token in the keyring."
+          : "Could not store the API token in the keyring.")
       ])
       return
     }
@@ -611,27 +649,30 @@ BarWidget {
 
   Process {
     id: secretProcess
+    property string forInstance: ""
     running: false
     stdout: StdioCollector {
       id: secretStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.finishSecretLookup(exitCode) }
+    onExited: function(exitCode) { if (!root.staleResult(secretProcess)) root.finishSecretLookup(exitCode) }
   }
 
   Process {
     id: projectsProcess
+    property string forInstance: ""
     running: false
     clearEnvironment: false
     stdout: StdioCollector {
       id: projectsStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(projectsProcess); root.finishProjects(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(projectsProcess); if (!root.staleResult(projectsProcess)) root.finishProjects(exitCode) }
   }
 
   Process {
     id: tasksProcess
+    property string forInstance: ""
     running: false
     clearEnvironment: false
     stdout: StdioCollector {
@@ -642,18 +683,19 @@ BarWidget {
       id: tasksStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(tasksProcess); root.finishFetch(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(tasksProcess); if (!root.staleResult(tasksProcess)) root.finishFetch(exitCode) }
   }
 
   Process {
     id: toggleProcess
+    property string forInstance: ""
     running: false
     clearEnvironment: false
     stderr: StdioCollector {
       id: toggleStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(toggleProcess); root.finishToggle(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(toggleProcess); if (!root.staleResult(toggleProcess)) root.finishToggle(exitCode) }
   }
 
   Process {
@@ -669,23 +711,25 @@ BarWidget {
 
   Process {
     id: secretTestProcess
+    property string forInstance: ""
     running: false
     stdout: StdioCollector {
       id: secretTestStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.finishSecretTest(exitCode) }
+    onExited: function(exitCode) { if (!root.staleResult(secretTestProcess)) root.finishSecretTest(exitCode) }
   }
 
   Process {
     id: testProcess
+    property string forInstance: ""
     running: false
     clearEnvironment: false
     stdout: StdioCollector {
       id: testStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.dropSecrets(testProcess); root.finishTest(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(testProcess); if (!root.staleResult(testProcess)) root.finishTest(exitCode) }
   }
 
   Loader {

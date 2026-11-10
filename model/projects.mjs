@@ -290,9 +290,14 @@ export function defaultProjectId(projects) {
 // ids never collide: { "<instance>": [id, id, …] }.
 export const MAX_COLLAPSED_IDS = 2000
 
+export const MAX_COLLAPSE_FILE_CHARS = 256 * 1024
+
 export function parseCollapsedState(text) {
   let parsed = null
-  try { parsed = JSON.parse(String(text || "")) } catch (e) { parsed = null }
+  const raw = String(text || "")
+  if (raw.length <= MAX_COLLAPSE_FILE_CHARS) {
+    try { parsed = JSON.parse(raw) } catch (e) { parsed = null }
+  }
   const out = Object.create(null)
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return out
   const keys = Object.keys(parsed).slice(0, 32)
@@ -300,9 +305,10 @@ export function parseCollapsedState(text) {
     const value = parsed[keys[i]]
     if (!Array.isArray(value)) continue
     const ids = []
+    const seen = new Set()
     for (let j = 0; j < value.length && ids.length < MAX_COLLAPSED_IDS; j++) {
       const id = Math.floor(Number(value[j]))
-      if (isFinite(id) && id >= 0 && ids.indexOf(id) < 0) ids.push(id)
+      if (isFinite(id) && id >= 0 && !seen.has(id)) { seen.add(id); ids.push(id) }
     }
     out[keys[i].slice(0, 2048)] = ids
   }

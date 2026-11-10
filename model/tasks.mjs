@@ -22,7 +22,7 @@ export function normalizedTask(raw, projectTitles) {
   if (!raw || typeof raw !== "object") return null
 
   const id = Number(raw.id)
-  if (!isFinite(id)) return null
+  if (!Number.isSafeInteger(id) || id <= 0) return null
 
   const title = clamped(raw.title, MAX_TITLE_CHARS).trim() || "Untitled task"
 

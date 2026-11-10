@@ -186,3 +186,77 @@ test("toggleDoneCommand fails on a non-2xx status", async (t) => {
     if (!ok) assert.match(r.stderr, new RegExp(code))
   }
 })
+
+test("instance URLs: only plain http(s), no credentials or curl options", () => {
+  for (const ok of ["https://v.example", "https://v.example:8443", "http://todo.localhost:8456", "https://host.ts.net:8443/vikunja"])
+    assert.equal(Model.normalizeInstance(ok + "/"), ok, ok)
+  for (const bad of ["https://user:pass@v.example", "https://user@v.example", "-K/tmp/x", "file:///etc/passwd",
+                     "dict://v.example", "https://v.example/?q=1", "https://v.example/#x", "https://v.ex ample",
+                     "javascript:alert(1)", "https://v.example\n-K/tmp/x"])
+    assert.equal(Model.normalizeInstance(bad), "", JSON.stringify(bad))
+  assert.equal(Model.isInsecureInstance("http://vikunja.lan"), true)
+  assert.equal(Model.isInsecureInstance("http://todo.localhost:8456"), false)
+  assert.equal(Model.isInsecureInstance("http://127.0.0.1:3456"), false)
+  assert.equal(Model.isInsecureInstance("http://127.attacker.example"), true)
+  assert.equal(Model.isInsecureInstance("https://vikunja.lan"), false)
+})
+
+test("tokens with whitespace or control characters are refused", () => {
+  assert.equal(Model.isValidToken("tk_abc123.-_XYZ"), true)
+  for (const bad of ["", "a b", "a\nX-Evil: 1", "a\r", "a\t"]) assert.equal(Model.isValidToken(bad), false, JSON.stringify(bad))
+})
+
+test("notification text is markup-escaped", () => {
+  assert.equal(Model.escapeMarkup("<b>a & b</b>"), "&lt;b&gt;a &amp; b&lt;/b&gt;")
+})
+
+test("task ids must be safe positive integers", () => {
+  const parse = id => Model.normalizedTask({ id, title: "x" }, {})
+  assert.equal(parse(5).id, 5)
+  for (const bad of [5.5, 0, -3, 2 ** 60, "abc", null]) assert.equal(parse(bad), null, String(bad))
+})
+
+test("oversized collapse-state files are ignored", () => {
+  const big = JSON.stringify({ a: Array.from({ length: 60000 }, (_, i) => i) })
+  assert.ok(big.length > Model.MAX_COLLAPSE_FILE_CHARS)
+  assert.deepEqual(Object.keys(Model.parseCollapsedState(big)), [])
+  assert.deepEqual(Model.parseCollapsedState('{"u":[3,3,2]}').u, [3, 2])
+})
+
+test("every curl call ignores ~/.curlrc, is limited to http(s) and passes the URL with --url", () => {
+  const scripts = [Model.tasksCommand("https://v.example"), Model.toggleDoneCommand("https://v.example", 1),
+                   Model.testCommand("https://v.example"), Model.createTaskRequest("https://v.example", 1, "x").command]
+  for (const argv of scripts) {
+    const calls = argv[2].match(/curl [^\n]*/g)
+    assert.ok(calls.length > 0)
+    for (const call of calls) {
+      assert.match(call, /^curl -q -sS --proto =http,https --proto-redir =http,https /)
+      assert.match(call, /--url "\$\{instance\}/)
+    }
+  }
+})
+
+test("fetch fails on a curl error or a bad page count instead of returning an empty list", async (t) => {
+  const { spawnSync } = await import("node:child_process")
+  const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const cases = [
+    ["exit 63", "printf 200; exit 63", /exceeds/],
+    ["exit 7", "echo 'curl: (7) refused' >&2; printf 000; exit 7", /refused/],
+    ["bad total_pages", `printf '{"items":[],"total_pages":"a[$(touch /tmp/x)]"}200'`, /invalid page count/],
+    ["zero total_pages", `printf '{"items":[],"total_pages":0}200'`, /invalid page count/]
+  ]
+  for (const [name, body, err] of cases) {
+    const dir = mkdtempSync(join(tmpdir(), "vikunja-fetch-"))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
+    writeFileSync(join(dir, "curl"), "#!/bin/bash\n" + body + "\n")
+    chmodSync(join(dir, "curl"), 0o755)
+    const argv = Model.boundedCommand(Model.tasksCommand("https://v.example"))
+    const r = spawnSync(argv[0], argv.slice(1), {
+      env: { ...process.env, PATH: dir + ":" + process.env.PATH, VIKUNJA_TOKEN: "t" }, encoding: "utf8"
+    })
+    assert.notEqual(r.status, 0, name)
+    assert.match(r.stderr, err, name)
+  }
+})

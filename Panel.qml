@@ -118,9 +118,17 @@ Panel {
     else root.openSettings()
   }
 
+  property string serverError: ""
+
   function saveServer() {
     if (!root.hostWidget) return
-    var normalized = Model.normalizeInstance(serverField.text)
+    var typed = String(serverField.text || "").trim()
+    var normalized = Model.normalizeInstance(typed)
+    if (typed !== "" && normalized === "") {
+      root.serverError = "Use a plain http:// or https:// address, without a username, password or query."
+      return
+    }
+    root.serverError = ""
     if (normalized === root.hostWidget.instance) return
     root.hostWidget.persistSettings({ instance: normalized })
     serverField.text = normalized
@@ -406,6 +414,9 @@ Panel {
     root.showSettings = false
     root.addOpen = false
     addField.text = ""
+    // An unsaved token never outlives the panel.
+    tokenField.text = ""
+    root.serverError = ""
     root.clearCursor()
   }
 
@@ -657,6 +668,21 @@ Panel {
                   font.family: root.contentFontFamily
                   onAccepted: root.saveServer()
                   onEditingFinished: root.saveServer()
+                }
+
+                Text {
+                  width: parent.width
+                  visible: text !== ""
+                  text: root.serverError !== ""
+                    ? root.serverError
+                    : (Model.isInsecureInstance(root.instance)
+                      ? "This address is not encrypted (http://): your API token crosses the network in plain text. Use https:// if you can."
+                      : "")
+                  textFormat: Text.PlainText
+                  wrapMode: Text.Wrap
+                  color: root.urgentColor
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
                 }
               }
 

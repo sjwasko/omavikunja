@@ -26,9 +26,41 @@ export const SYNC_INTERVAL = {
 // The instance URL is kept as a trimmed base URL without a trailing slash,
 // so callers can append "/api/v2/..." directly. An empty string means the
 // widget has not been configured yet.
+//
+// Only plain http(s) URLs are accepted: no username or password (they would
+// show up in `ps` and in the state file), no query or fragment, nothing that
+// could be read as a curl option. Anything else normalizes to "" so the
+// widget treats it as unconfigured and never runs curl or xdg-open with it.
+const INSTANCE_PATTERN = /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?(\/[A-Za-z0-9._~%!$&'()*+,;=:@-]*)*$/
+
+export function isValidInstance(value) {
+  return INSTANCE_PATTERN.test(String(value)) && String(value).length <= 2048
+}
+
 export function normalizeInstance(value) {
   if (value === undefined || value === null) return INSTANCE.defaultValue
-  return String(value).trim().replace(/\/+$/, "")
+  const text = String(value).trim().replace(/\/+$/, "")
+  return isValidInstance(text) ? text : ""
+}
+
+// True for http:// on anything but this machine: the token would cross the
+// network unencrypted.
+export function isInsecureInstance(value) {
+  const match = /^http:\/\/([^/:]+)/.exec(String(value))
+  if (!match) return false
+  const host = match[1].toLowerCase()
+  return !(host === "localhost" || host.endsWith(".localhost") || /^127\.\d+\.\d+\.\d+$/.test(host))
+}
+
+// API tokens are single printable ASCII words. Anything with whitespace or
+// control characters is refused, so it can never add an HTTP header line.
+export function isValidToken(value) {
+  return /^[\x21-\x7e]{1,4096}$/.test(String(value))
+}
+
+// notify-send bodies are rendered as markup by mako and most daemons.
+export function escapeMarkup(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
 function normalizeBoolean(value, spec) {
