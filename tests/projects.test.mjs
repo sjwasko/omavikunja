@@ -141,12 +141,12 @@ test("insertTask merges a created task in sort order and ignores junk", () => {
   assert.deepEqual(Model.removeTask(added, 2).map(t => t.id), [1])
 })
 
-test("createTaskCommand keeps the title out of the script text", () => {
-  const evil = '"; rm -rf ~; echo "$(id)'
-  const argv = Model.createTaskCommand("https://v.example", 7, evil)
-  assert.ok(!argv[2].includes(evil))
-  assert.equal(argv[argv.length - 1], evil)
-  assert.equal(argv[argv.length - 2], "7")
+test("createTaskCommand keeps the title out of argv", () => {
+  const argv = Model.createTaskCommand("https://v.example", 7)
+  assert.equal(argv[argv.length - 1], "7")
+  assert.equal(argv.length, 6)
+  assert.ok(argv[2].includes("env." + Model.TITLE_ENV))
+  assert.ok(!argv[2].includes("-d \"$body\""))
   assert.equal(Model.normalizeNewTitle("  a\nb  "), "a b")
 })
 

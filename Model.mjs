@@ -75,6 +75,7 @@ export {
   MAX_TOTAL_BYTES,
   MAX_PAGES,
   TOKEN_ENV,
+  TITLE_ENV,
   SECRET_SERVICE,
   LEGACY_SECRET_SERVICE,
   boundedCommand,

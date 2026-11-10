@@ -375,8 +375,11 @@ BarWidget {
     if (text === "" || target <= 0 || token === "" || createProcess.running) return false
     addError = ""
     createProcess.addedProject = target
-    createProcess.command = Model.boundedCommand(Model.createTaskCommand(instance, target, text))
-    createProcess.environment = rootTokenEnv()
+    createProcess.command = Model.boundedCommand(Model.createTaskCommand(instance, target))
+    // The title rides in the environment, like the token, so it stays out of ps.
+    var env = rootTokenEnv()
+    env[Model.TITLE_ENV] = text
+    createProcess.environment = env
     createProcess.running = true
     return true
   }

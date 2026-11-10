@@ -173,18 +173,24 @@ export function testCommand(instance) {
   return ["bash", "-c", script, "vikunja-test", instance]
 }
 
-// Create a task in a project. The title travels as a positional argument and
-// is turned into JSON by jq, so it is never interpolated into the script.
-// Prints the created task's JSON on success.
-export function createTaskCommand(instance, projectId, title) {
+// The new task's title travels via this environment variable, never argv, so
+// a title added to a private project cannot be read from `ps` by another local
+// account. jq reads it with env.*, and curl reads the JSON body from a bash
+// process substitution (printf is a builtin).
+export const TITLE_ENV = "VIKUNJA_TASK_TITLE"
+
+// Create a task in a project. The title is set as TITLE_ENV on the Process
+// alongside TOKEN_ENV; it is turned into JSON by jq, so it is never
+// interpolated into the script. Prints the created task's JSON on success.
+export function createTaskCommand(instance, projectId) {
   const script = [
     'instance="$1"',
     'project="$2"',
-    'body="$(jq -cn --arg t "$3" \'{title: $t}\')"',
-    'resp="$(curl -sS --max-time 20 --max-filesize 1048576 -w "%{http_code}" -X POST -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") -H "Content-Type: application/json" -d "$body" "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
+    'body="$(jq -cn \'{title: env.' + TITLE_ENV + '}\')"',
+    'resp="$(curl -sS --max-time 20 --max-filesize 1048576 -w "%{http_code}" -X POST -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") -H "Content-Type: application/json" --data-binary @<(printf "%s" "$body") "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
     'code="${resp: -3}"',
     'if [ "$code" != "200" ] && [ "$code" != "201" ]; then printf "Could not add the todo (HTTP %s)" "$code" >&2; exit 1; fi',
     'printf "%s" "${resp%???}"'
   ].join("\n")
-  return ["bash", "-c", script, "vikunja-create", instance, String(Math.floor(Number(projectId)) || 0), String(title)]
+  return ["bash", "-c", script, "vikunja-create", instance, String(Math.floor(Number(projectId)) || 0)]
 }
