@@ -141,18 +141,20 @@ test("insertTask merges a created task in sort order and ignores junk", () => {
   assert.deepEqual(Model.removeTask(added, 2).map(t => t.id), [1])
 })
 
-test("createTaskRequest keeps the title out of argv and sends it as JSON", async () => {
+test("createTaskRequest keeps the title out of argv and sends it as JSON", async (t) => {
   const { spawnSync } = await import("node:child_process")
-  const { mkdtempSync, writeFileSync, chmodSync } = await import("node:fs")
+  const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs")
   const { tmpdir } = await import("node:os")
   const { join } = await import("node:path")
   const title = '"; rm -rf ~; echo "$(id) %s \\n é'
   const req = Model.createTaskRequest("https://v.example", 7, title)
   assert.deepEqual(req.command.slice(3), ["vikunja-create", "https://v.example", "7"])
   assert.ok(!req.command.some(a => a.includes(title)))
-  // A stub curl that echoes the request body back as the created task.
+  // A stub curl that echoes the --data-binary body back as the created task.
   const dir = mkdtempSync(join(tmpdir(), "vikunja-create-"))
-  writeFileSync(join(dir, "curl"), "#!/bin/sh\ncat; printf '201'\n")
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  writeFileSync(join(dir, "curl"),
+    '#!/bin/bash\nwhile [ $# -gt 0 ]; do [ "$1" = --data-binary ] && cat "${2#@}"; shift; done; printf 201\n')
   chmodSync(join(dir, "curl"), 0o755)
   const run = env => spawnSync(req.command[0], req.command.slice(1), {
     env: { ...process.env, PATH: dir + ":" + process.env.PATH, VIKUNJA_TOKEN: "t", ...env }, encoding: "utf8"
@@ -166,13 +168,14 @@ test("createTaskRequest keeps the title out of argv and sends it as JSON", async
   assert.equal(Model.normalizeNewTitle("  a\nb  "), "a b")
 })
 
-test("toggleDoneCommand fails on a non-2xx status", async () => {
+test("toggleDoneCommand fails on a non-2xx status", async (t) => {
   const { spawnSync } = await import("node:child_process")
-  const { mkdtempSync, writeFileSync, chmodSync } = await import("node:fs")
+  const { mkdtempSync, writeFileSync, chmodSync, rmSync } = await import("node:fs")
   const { tmpdir } = await import("node:os")
   const { join } = await import("node:path")
   for (const [code, ok] of [["200", true], ["401", false], ["404", false]]) {
     const dir = mkdtempSync(join(tmpdir(), "vikunja-toggle-"))
+    t.after(() => rmSync(dir, { recursive: true, force: true }))
     writeFileSync(join(dir, "curl"), `#!/bin/sh\nprintf '${code}'\n`)
     chmodSync(join(dir, "curl"), 0o755)
     const argv = Model.toggleDoneCommand("https://v.example", 5)

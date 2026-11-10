@@ -178,9 +178,9 @@ export function testCommand(instance) {
 
 // The new task's title travels via this environment variable, never argv, so
 // a title added to a private project cannot be read from `ps` by another local
-// account. jq reads it with env.* and pipes the JSON body straight into curl's
-// stdin; pipefail makes a jq failure fail the request instead of sending an
-// empty body.
+// account. jq reads it with env.* and builds the JSON body first; if jq fails
+// the script stops before curl runs. curl then reads the body from a bash
+// process substitution (printf is a builtin), so it stays out of argv too.
 export const TITLE_ENV = "VIKUNJA_TASK_TITLE"
 
 // Create a task in a project. Returns { command, env }: run `command` with
@@ -188,11 +188,11 @@ export const TITLE_ENV = "VIKUNJA_TASK_TITLE"
 // Prints the created task's JSON on success.
 export function createTaskRequest(instance, projectId, title) {
   const script = [
-    'set -o pipefail',
     'instance="$1"',
     'project="$2"',
     '[ -n "${' + TITLE_ENV + '}" ] || { printf "Could not add the todo (empty title)" >&2; exit 1; }',
-    'resp="$(jq -cn \'{title: env.' + TITLE_ENV + '}\' | curl -sS --max-time 20 --max-filesize 1048576 -w "%{http_code}" -X POST ' + AUTH_HEADER + ' -H "Content-Type: application/json" --data-binary @- "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
+    'body="$(jq -cn \'{title: env.' + TITLE_ENV + '}\')" && [ -n "$body" ] || { printf "Could not add the todo (jq failed)" >&2; exit 1; }',
+    'resp="$(curl -sS --max-time 20 --max-filesize 1048576 -w "%{http_code}" -X POST ' + AUTH_HEADER + ' -H "Content-Type: application/json" --data-binary @<(printf "%s" "$body") "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
     'code="${resp: -3}"',
     'if [ "$code" != "200" ] && [ "$code" != "201" ]; then printf "Could not add the todo (HTTP %s)" "$code" >&2; exit 1; fi',
     'printf "%s" "${resp%???}"'

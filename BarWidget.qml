@@ -126,6 +126,12 @@ BarWidget {
     tasksProcess.running = true
   }
 
+  // Processes that carried the token (or a new todo's title) in their
+  // environment drop it as soon as they exit, so it is not kept around.
+  function dropSecrets(process) {
+    process.environment = ({})
+  }
+
   function rootTokenEnv() {
     var env = {}
     env[Model.TOKEN_ENV] = token
@@ -386,8 +392,6 @@ BarWidget {
   }
 
   function finishCreate(exitCode) {
-    // Drop the title and token from the finished Process.
-    createProcess.environment = ({})
     if (exitCode !== 0) {
       var detail = Model.truncate(String(createStderr.text || "").trim(), 200)
       addError = detail !== "" ? detail : "Could not add the todo."
@@ -419,7 +423,7 @@ BarWidget {
       id: createStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.finishCreate(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(createProcess); root.finishCreate(exitCode) }
   }
 
   function eventValue(value) {
@@ -623,7 +627,7 @@ BarWidget {
       id: projectsStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.finishProjects(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(projectsProcess); root.finishProjects(exitCode) }
   }
 
   Process {
@@ -638,7 +642,7 @@ BarWidget {
       id: tasksStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.finishFetch(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(tasksProcess); root.finishFetch(exitCode) }
   }
 
   Process {
@@ -649,7 +653,7 @@ BarWidget {
       id: toggleStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.finishToggle(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(toggleProcess); root.finishToggle(exitCode) }
   }
 
   Process {
@@ -660,7 +664,7 @@ BarWidget {
       id: tokenStoreStderr
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.finishStoreToken(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(tokenStoreProcess); root.finishStoreToken(exitCode) }
   }
 
   Process {
@@ -681,7 +685,7 @@ BarWidget {
       id: testStdout
       waitForEnd: true
     }
-    onExited: function(exitCode) { root.finishTest(exitCode) }
+    onExited: function(exitCode) { root.dropSecrets(testProcess); root.finishTest(exitCode) }
   }
 
   Loader {
