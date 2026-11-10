@@ -375,16 +375,19 @@ BarWidget {
     if (text === "" || target <= 0 || token === "" || createProcess.running) return false
     addError = ""
     createProcess.addedProject = target
-    createProcess.command = Model.boundedCommand(Model.createTaskCommand(instance, target))
     // The title rides in the environment, like the token, so it stays out of ps.
+    var request = Model.createTaskRequest(instance, target, text)
     var env = rootTokenEnv()
-    env[Model.TITLE_ENV] = text
+    for (var key in request.env) env[key] = request.env[key]
+    createProcess.command = Model.boundedCommand(request.command)
     createProcess.environment = env
     createProcess.running = true
     return true
   }
 
   function finishCreate(exitCode) {
+    // Drop the title and token from the finished Process.
+    createProcess.environment = ({})
     if (exitCode !== 0) {
       var detail = Model.truncate(String(createStderr.text || "").trim(), 200)
       addError = detail !== "" ? detail : "Could not add the todo."

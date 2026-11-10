@@ -60,7 +60,7 @@ token (Settings → API Tokens in Vikunja). The token is stored in your OS
 keyring, never in `shell.json`. A token already stored by
 `org.jsongerber.vikunja` is picked up automatically.
 
-Requires Vikunja 2.4+ (API v2), `curl`, `jq` and `secret-tool` (libsecret).
+Requires Vikunja 2.4+ (API v2), `curl` 7.55+, `jq` and `secret-tool` (libsecret).
 
 ## Remove
 

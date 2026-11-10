@@ -24,6 +24,9 @@ const PROJECT_FIELDS = "{id, title, parent_project_id, is_archived, position, he
 // neither the shell's nor curl's command line in `ps`.
 export const TOKEN_ENV = "VIKUNJA_TOKEN"
 
+// The one curl argument that carries the token. `-H @file` needs curl 7.55+.
+const AUTH_HEADER = '-H @<(printf "Authorization: Bearer %s\\n" "${' + TOKEN_ENV + '}")'
+
 // The keyring service attribute the token is stored under.
 export const SECRET_SERVICE = "sjwasko.omavikunja"
 
@@ -58,7 +61,7 @@ export function storeTokenCommand(instance) {
 }
 
 // Fetch items across all pages and merge every page's items into one JSON
-// array. Bounded to 20 pages so a misbehaving total can never loop forever.
+// array. Bounded to MAX_PAGES pages so a misbehaving total can never loop forever.
 // Non-200 responses (auth failures, wrong host, etc.) are reported on stderr
 // and fail the fetch so the widget can surface an error instead of showing an
 // empty list.
@@ -83,7 +86,7 @@ function fetchItemsCommand(instance, path, query, fields) {
     "total_bytes=0",
     'out="[]"',
     'while [ "$page" -le "$total_pages" ] && [ "$page" -le ' + MAX_PAGES + ' ]; do',
-    '  resp="$(curl -sS --max-time 20 --max-filesize ' + curlCap + ' -w "%{http_code}" -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") "${instance}${path}?per_page=50&page=${page}${query}" | head -c ' + readCap + ')"',
+    '  resp="$(curl -sS --max-time 20 --max-filesize ' + curlCap + ' -w "%{http_code}" ' + AUTH_HEADER + ' "${instance}${path}?per_page=50&page=${page}${query}" | head -c ' + readCap + ')"',
     '  resp_bytes="$(printf "%s" "$resp" | wc -c)"',
     '  if [ "$resp_bytes" -gt ' + overflowCap + ' ]; then',
     '    printf "Vikunja response exceeds ' + pageCap + ' bytes for %s" "$path" >&2',
@@ -133,7 +136,7 @@ export function toggleDoneCommand(instance, id) {
   const script = [
     'instance="$1"',
     'id="$2"',
-    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" -X PATCH -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") -H "Content-Type: application/json" -d \'{"done":true}\' "${instance}/api/v2/tasks/${id}")" || exit 1',
+    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" -X PATCH ' + AUTH_HEADER + ' -H "Content-Type: application/json" -d \'{"done":true}\' "${instance}/api/v2/tasks/${id}")" || exit 1',
     'case "$code" in',
     '  200|201|204) exit 0 ;;',
     '  401) printf "Unauthorized (HTTP 401): check the API token" >&2 ;;',
@@ -157,7 +160,7 @@ export function testCommand(instance) {
   const script = [
     'instance="$1"',
     'errfile="$(mktemp)"',
-    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") "${instance}/api/v2/tasks?per_page=1" 2>"$errfile")"',
+    'code="$(curl -sS --max-time 20 -o /dev/null -w "%{http_code}" ' + AUTH_HEADER + ' "${instance}/api/v2/tasks?per_page=1" 2>"$errfile")"',
     'err="$(cat "$errfile")"; rm -f "$errfile"',
     'if [ "$code" = "200" ]; then printf "Connection OK"; exit 0; fi',
     'if [ -n "$err" ]; then printf "%s" "$err"',
@@ -175,22 +178,29 @@ export function testCommand(instance) {
 
 // The new task's title travels via this environment variable, never argv, so
 // a title added to a private project cannot be read from `ps` by another local
-// account. jq reads it with env.*, and curl reads the JSON body from a bash
-// process substitution (printf is a builtin).
+// account. jq reads it with env.* and pipes the JSON body straight into curl's
+// stdin; pipefail makes a jq failure fail the request instead of sending an
+// empty body.
 export const TITLE_ENV = "VIKUNJA_TASK_TITLE"
 
-// Create a task in a project. The title is set as TITLE_ENV on the Process
-// alongside TOKEN_ENV; it is turned into JSON by jq, so it is never
-// interpolated into the script. Prints the created task's JSON on success.
-export function createTaskCommand(instance, projectId) {
+// Create a task in a project. Returns { command, env }: run `command` with
+// `env` (plus TOKEN_ENV) set on the Process, so the title cannot be left out.
+// Prints the created task's JSON on success.
+export function createTaskRequest(instance, projectId, title) {
   const script = [
+    'set -o pipefail',
     'instance="$1"',
     'project="$2"',
-    'body="$(jq -cn \'{title: env.' + TITLE_ENV + '}\')"',
-    'resp="$(curl -sS --max-time 20 --max-filesize 1048576 -w "%{http_code}" -X POST -H @<(printf "Authorization: Bearer %s\\n" "${VIKUNJA_TOKEN}") -H "Content-Type: application/json" --data-binary @<(printf "%s" "$body") "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
+    '[ -n "${' + TITLE_ENV + '}" ] || { printf "Could not add the todo (empty title)" >&2; exit 1; }',
+    'resp="$(jq -cn \'{title: env.' + TITLE_ENV + '}\' | curl -sS --max-time 20 --max-filesize 1048576 -w "%{http_code}" -X POST ' + AUTH_HEADER + ' -H "Content-Type: application/json" --data-binary @- "${instance}/api/v2/projects/${project}/tasks")" || exit 1',
     'code="${resp: -3}"',
     'if [ "$code" != "200" ] && [ "$code" != "201" ]; then printf "Could not add the todo (HTTP %s)" "$code" >&2; exit 1; fi',
     'printf "%s" "${resp%???}"'
   ].join("\n")
-  return ["bash", "-c", script, "vikunja-create", instance, String(Math.floor(Number(projectId)) || 0)]
+  const env = {}
+  env[TITLE_ENV] = String(title)
+  return {
+    command: ["bash", "-c", script, "vikunja-create", instance, String(Math.floor(Number(projectId)) || 0)],
+    env
+  }
 }

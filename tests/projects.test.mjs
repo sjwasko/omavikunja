@@ -141,12 +141,28 @@ test("insertTask merges a created task in sort order and ignores junk", () => {
   assert.deepEqual(Model.removeTask(added, 2).map(t => t.id), [1])
 })
 
-test("createTaskCommand keeps the title out of argv", () => {
-  const argv = Model.createTaskCommand("https://v.example", 7)
-  assert.equal(argv[argv.length - 1], "7")
-  assert.equal(argv.length, 6)
-  assert.ok(argv[2].includes("env." + Model.TITLE_ENV))
-  assert.ok(!argv[2].includes("-d \"$body\""))
+test("createTaskRequest keeps the title out of argv and sends it as JSON", async () => {
+  const { spawnSync } = await import("node:child_process")
+  const { mkdtempSync, writeFileSync, chmodSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const title = '"; rm -rf ~; echo "$(id) %s \\n é'
+  const req = Model.createTaskRequest("https://v.example", 7, title)
+  assert.deepEqual(req.command.slice(3), ["vikunja-create", "https://v.example", "7"])
+  assert.ok(!req.command.some(a => a.includes(title)))
+  // A stub curl that echoes the request body back as the created task.
+  const dir = mkdtempSync(join(tmpdir(), "vikunja-create-"))
+  writeFileSync(join(dir, "curl"), "#!/bin/sh\ncat; printf '201'\n")
+  chmodSync(join(dir, "curl"), 0o755)
+  const run = env => spawnSync(req.command[0], req.command.slice(1), {
+    env: { ...process.env, PATH: dir + ":" + process.env.PATH, VIKUNJA_TOKEN: "t", ...env }, encoding: "utf8"
+  })
+  const ok = run(req.env)
+  assert.equal(ok.status, 0, ok.stderr)
+  assert.equal(JSON.parse(ok.stdout).title, title)
+  const missing = run({})
+  assert.notEqual(missing.status, 0)
+  assert.match(missing.stderr, /empty title/)
   assert.equal(Model.normalizeNewTitle("  a\nb  "), "a b")
 })
 

@@ -85,7 +85,7 @@ export {
   projectsCommand,
   toggleDoneCommand,
   testCommand,
-  createTaskCommand
+  createTaskRequest
 } from "./model/command.mjs"
 
 export {
