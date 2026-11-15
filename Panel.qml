@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "Model.mjs" as Model
 
@@ -49,15 +50,27 @@ Panel {
   // Every dropdown color comes from the popup surface it is drawn on and is
   // checked for contrast against it (model/palette.mjs). Not the bar's text
   // color: with a clear bar that follows the wallpaper, so a light wallpaper
-  // used to give dark text on the dark popup. Rebinds on every theme change.
-  readonly property var contentColors: Model.contentPalette({
-    surface: Color.popups.background,
-    text: Color.popups.text,
-    foreground: Color.foreground,
-    accent: Color.accent,
-    urgent: "#e05c5c",
-    ok: "#6fc276"
-  })
+  // used to give dark text on the dark popup.
+  //
+  // At shell startup this binding can run before the theme's popup colors
+  // exist. Every read is guarded so it never throws (a throwing binding is
+  // never re-evaluated, which left every color invalid, drawn as black), and
+  // it reads the base theme colors and the open state unconditionally so it
+  // re-runs once the theme has loaded, on every theme change and each time
+  // the panel opens.
+  readonly property var contentColors: root.paletteFrom(Commons.Color.popups,
+    Commons.Color.background, Commons.Color.foreground, Commons.Color.accent, root.opened)
+
+  function paletteFrom(popups, background, foreground, accent) {
+    return Model.contentPalette({
+      surface: popups && popups.background !== undefined ? popups.background : background,
+      text: popups && popups.text !== undefined ? popups.text : foreground,
+      foreground: foreground,
+      accent: accent,
+      urgent: "#e05c5c",
+      ok: "#6fc276"
+    })
+  }
   readonly property color contentForeground: root.contentColors.text
   readonly property color textSecondary: root.contentColors.secondary
   readonly property color textTertiary: root.contentColors.tertiary
@@ -65,6 +78,10 @@ Panel {
   readonly property color accentColor: root.contentColors.accent
   readonly property color urgentColor: root.contentColors.urgent
   readonly property color okColor: root.contentColors.ok
+  readonly property string pluginId: "sjwasko.omavikunja"
+  readonly property string pluginVersion: hostWidget ? hostWidget.pluginVersion : ""
+  readonly property string latestVersion: hostWidget ? hostWidget.latestVersion : ""
+  readonly property bool updateAvailable: hostWidget ? hostWidget.updateAvailable : false
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
   function open() {
@@ -330,6 +347,11 @@ Panel {
     root.hostWidget.persistSettings({ includeSubprojects: !root.hostWidget.includeSubprojects })
   }
 
+  function toggleCheckForUpdates() {
+    if (!root.hostWidget) return
+    root.hostWidget.persistSettings({ checkForUpdates: !root.hostWidget.checkForUpdates })
+  }
+
   function toggleHideEmptyProjects() {
     if (!root.hostWidget) return
     root.hostWidget.persistSettings({ hideEmptyProjects: !root.hostWidget.hideEmptyProjects })
@@ -572,7 +594,8 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(360))
-    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight)
+    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight
+      + (footerRow.visible ? footerRow.height + Style.space(8) : 0))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -585,6 +608,7 @@ Panel {
         || subprojectsToggle.activeFocus
         || hideEmptyToggle.activeFocus
         || iconGroup.activeFocus
+        || updatesToggle.activeFocus
         || addField.activeFocus
       onCloseRequested: root.close()
       onMoveRequested: function(dx, dy) { root.moveCursor(dx, dy) }
@@ -614,7 +638,11 @@ Panel {
 
       Flickable {
         id: scroll
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: footerRow.visible ? footerRow.top : parent.bottom
+        anchors.bottomMargin: footerRow.visible ? Style.space(8) : 0
         contentWidth: scroll.width
         contentHeight: contentColumn.implicitHeight
         clip: true
@@ -674,6 +702,17 @@ Panel {
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(4)
+
+              // Shown only when a newer release is out (model/update.mjs).
+              PanelActionButton {
+                id: updateButton
+                visible: !root.showSettings && root.updateAvailable
+                iconText: "\uf0aa"
+                tooltipText: "Version " + root.latestVersion + " is available (you have " + root.pluginVersion + ")"
+                foreground: root.accentColor
+                fontFamily: root.contentFontFamily
+                onClicked: Qt.openUrlExternally(Model.UPDATE_PAGE_URL)
+              }
 
               PanelActionButton {
                 id: addButton
@@ -1234,6 +1273,18 @@ Panel {
                   fontSize: Style.font.bodySmall
                   onChanged: function(value) { root.setIconStyle(value) }
                 }
+              }
+
+              Toggle {
+                id: updatesToggle
+                width: parent.width
+                label: "Check for updates"
+                description: "Once a day, compare this version with the latest release on GitHub and show a link when a newer one is out. Nothing about your todos is sent. Installed with omarchy plugin add? Run omarchy plugin update " + root.pluginId + " to update."
+                checked: root.hostWidget ? root.hostWidget.checkForUpdates : true
+                foreground: root.contentForeground
+                accent: root.accentColor
+                fontFamily: root.contentFontFamily
+                onClicked: root.toggleCheckForUpdates()
               }
 
               Column {
@@ -2094,6 +2145,23 @@ Panel {
               font.pixelSize: Style.font.caption
             }
           }
+        }
+      }
+
+      // Version, bottom-right and faint. A newer release shows as an icon in
+      // the header instead, where it is seen without scrolling.
+      Row {
+        id: footerRow
+        visible: root.pluginVersion !== ""
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+
+        Text {
+          text: "v" + root.pluginVersion
+          textFormat: Text.PlainText
+          color: root.textDecor
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.caption
         }
       }
     }

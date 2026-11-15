@@ -57,7 +57,9 @@ export {
   normalizeIncludeSubprojects,
   normalizeHideEmptyProjects,
   ICON_STYLE,
-  normalizeIconStyle
+  normalizeIconStyle,
+  CHECK_FOR_UPDATES,
+  normalizeCheckForUpdates
 } from "./model/settings.mjs"
 
 export {
@@ -130,3 +132,11 @@ export {
 } from "./model/projects.mjs"
 
 export { contentPalette } from "./model/palette.mjs"
+
+export {
+  UPDATE_MANIFEST_URL,
+  UPDATE_PAGE_URL,
+  manifestVersion,
+  isNewerVersion,
+  updateCheckCommand
+} from "./model/update.mjs"

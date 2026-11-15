@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "sjwasko.omavikunja",
   "name": "Vikunja Projects",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "author": "sjwasko",
   "license": "MIT",
   "description": "Your Vikunja todos in the bar, as a collapsible project tree or one chosen project.",
@@ -27,7 +27,8 @@
       "showNoDate": true,
       "showTitle": true,
       "syncInterval": 300,
-      "iconStyle": "mono"
+      "iconStyle": "mono",
+      "checkForUpdates": true
     },
     "schema": [
       {
@@ -107,6 +108,13 @@
         ],
         "defaultValue": "mono",
         "description": "mono: the Vikunja llama in your theme's bar color. color: the official blue Vikunja logo."
+      },
+      {
+        "key": "checkForUpdates",
+        "type": "boolean",
+        "label": "Check for updates",
+        "defaultValue": true,
+        "description": "Once a day, compare this version with the latest release on GitHub and show a link when a newer one is out. Nothing about your todos is sent."
       }
     ]
   }

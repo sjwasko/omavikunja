@@ -133,3 +133,10 @@ export function normalizeIconStyle(value) {
   const text = value === undefined || value === null ? "" : String(value).trim().toLowerCase()
   return ICON_STYLE.values.indexOf(text) >= 0 ? text : ICON_STYLE.defaultValue
 }
+
+// Daily check for a newer release (model/update.mjs). On unless turned off.
+export const CHECK_FOR_UPDATES = { key: "checkForUpdates", defaultValue: true }
+
+export function normalizeCheckForUpdates(value) {
+  return normalizeBoolean(value, CHECK_FOR_UPDATES)
+}

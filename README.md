@@ -66,6 +66,24 @@ keyring, never in `shell.json`. A token already stored by
 
 Requires Vikunja 2.4+ (API v2), `curl` 7.55+, `jq`, `secret-tool` (libsecret) and `wl-paste` (wl-clipboard, for pasting into the panel; all ship with Omarchy).
 
+## Update
+
+The installed version is shown faintly at the bottom-right of the panel.
+
+- **Installed with `omarchy plugin add`:** run
+  `omarchy plugin update sjwasko.omavikunja`, or use a plugin manager such as
+  omaplug, which offers updates as soon as they are pushed.
+- **Without a plugin manager:** once a day the panel reads this repository's
+  `manifest.json` from GitHub (a few KB) and, when its version is newer, shows
+  an update icon next to the sync and settings buttons. Clicking it opens the plugin's
+  [marketplace page](https://plugins.omarchy.org/plugin.html?id=sjwasko.omavikunja),
+  which shows whether that release is verified and how to install it. Only a
+  version bump counts, so ordinary commits never trigger a notice.
+
+The check sends nothing about your todos, instance or token; GitHub sees an
+ordinary download of a public file. Turn it off with **Check for updates** in
+the panel's settings, or `"checkForUpdates": false` in `shell.json`.
+
 ## Remove
 
 ```sh
@@ -122,6 +140,7 @@ Keys follow Vikunja's own shortcuts wherever Vikunja has one, so the same keys d
 | `showTitle` | `true` | Show the next todo's title in the bar. |
 | `syncInterval` | `300` | Seconds between refreshes (30–86400). |
 | `iconStyle` | `"mono"` | `mono` (theme-colored llama) or `color` (official logo). |
+| `checkForUpdates` | `true` | Check GitHub once a day for a newer release (see below). |
 
 Which projects are rolled up is saved in
 `$XDG_STATE_HOME/omarchy/sjwasko.omavikunja/collapsed.json`, which defaults to

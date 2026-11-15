@@ -62,6 +62,7 @@ BarWidget {
   readonly property string titleText: next ? Model.formatLabel(next, now) : ""
   readonly property string label: next ? "\uf058  " + titleText : ""
   readonly property string iconStyle: Model.normalizeIconStyle(setting("iconStyle", null))
+  readonly property bool checkForUpdates: Model.normalizeCheckForUpdates(setting("checkForUpdates", null))
   readonly property bool showingFallbackIcon: !showTitle || label === ""
 
   // The token is scoped to the instance URL in the keyring, so a cached token
@@ -120,7 +121,7 @@ BarWidget {
 
   readonly property var watchedProcesses: [stateDirProcess, collapseReadProcess,
     secretProcess, projectsProcess, tasksProcess, toggleProcess,
-    secretTestProcess, testProcess, createProcess, tokenStoreProcess]
+    secretTestProcess, testProcess, createProcess, tokenStoreProcess, updateProcess]
 
   Timer {
     interval: 2000
@@ -1070,6 +1071,66 @@ BarWidget {
     if (next && (!showTitle || Model.labelIsTruncated(next, now)))
       return Model.plainLine(next.title) + "\n────────\n" + summary
     return summary
+  }
+
+  // ---- Release check. The installed version comes from this plugin's own
+  //      manifest; the latest from GitHub (model/update.mjs), 30 seconds
+  //      after startup and then once a day, unless turned off in settings.
+  property string pluginVersion: ""
+  property string latestVersion: ""
+  readonly property bool updateAvailable: checkForUpdates && Model.isNewerVersion(latestVersion, pluginVersion)
+
+  FileView {
+    path: decodeURIComponent(String(Qt.resolvedUrl("manifest.json")).replace(/^file:\/\//, ""))
+    watchChanges: false
+    printErrors: false
+    onLoaded: root.pluginVersion = Model.manifestVersion(text())
+  }
+
+  onCheckForUpdatesChanged: {
+    if (!checkForUpdates) latestVersion = ""
+    else updateStartTimer.restart()
+  }
+
+  Timer {
+    id: updateStartTimer
+    interval: 30 * 1000
+    running: root.checkForUpdates
+    onTriggered: root.checkUpdates()
+  }
+
+  Timer {
+    interval: 24 * 60 * 60 * 1000
+    repeat: true
+    running: root.checkForUpdates
+    onTriggered: root.checkUpdates()
+  }
+
+  function checkUpdates() {
+    if (!checkForUpdates || updateProcess.deadlineAt > 0) return
+    updateProcess.command = Model.boundedCommand(Model.withDeadline(Model.updateCheckCommand(), Model.DEADLINES.update))
+    root.launch(updateProcess, Model.DEADLINES.update)
+  }
+
+  Process {
+    id: updateProcess
+    running: false
+    stdout: StdioCollector {
+      id: updateStdout
+      waitForEnd: true
+    }
+    property real launchedAt: 0
+    property real deadlineAt: 0
+    // Runs once per launch: on exit, or from the watchdog. A failed check
+    // (offline, GitHub down) keeps the last answer and tries again tomorrow.
+    function handleExit(code) {
+      if (deadlineAt === 0) return
+      deadlineAt = 0
+      if (code !== 0 || !root.checkForUpdates) return
+      var version = Model.manifestVersion(updateStdout.text)
+      if (version !== "") root.latestVersion = version
+    }
+    onExited: function(exitCode) { handleExit(exitCode) }
   }
 
   Component.onCompleted: {
