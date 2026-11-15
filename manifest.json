@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "sjwasko.omavikunja",
   "name": "Vikunja Projects",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "sjwasko",
   "license": "MIT",
   "description": "Your Vikunja todos in the bar, as a collapsible project tree or one chosen project.",
