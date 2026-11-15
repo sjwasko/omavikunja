@@ -29,6 +29,10 @@ A Vikunja todo widget for the Omarchy bar that knows about projects. Based on
   closes it. New and completed todos show up straight away. Adding a todo also starts a sync right away, so its server-side details arrive without waiting for the interval.
 - The bar icon is the Vikunja llama, drawn in your theme's bar color, or the
   official blue logo (`iconStyle: "color"`).
+- Text stays readable on any theme and bar style. The panel takes its colors
+  from the theme's popup surface, and any color that is too faint is adjusted
+  automatically. It re-checks whenever you change theme, so a clear bar over a
+  light wallpaper no longer turns the text dark.
 - Only open todos are fetched (up to 5,000), so large archives of done
   tasks don't crowd out the open ones.
 

@@ -46,13 +46,25 @@ Panel {
     if (root.testStatus === "ok") tokenField.text = ""
   }
 
-  // Color.accent is undefined for a moment while the shell starts and the
-  // theme loads; fall back to the foreground until it is there.
-  readonly property color accentColor: Color.accent !== undefined ? Color.accent : contentForeground
-  // Text-safe red: the theme's own red can be near-black on some themes,
-  // which makes overdue labels unreadable. Matches the "Urgent" priority color.
-  readonly property color urgentColor: "#e05c5c"
-  readonly property color contentForeground: bar ? bar.barForeground : (Color.foreground !== undefined ? Color.foreground : "#cacccc")
+  // Every dropdown color comes from the popup surface it is drawn on and is
+  // checked for contrast against it (model/palette.mjs). Not the bar's text
+  // color: with a clear bar that follows the wallpaper, so a light wallpaper
+  // used to give dark text on the dark popup. Rebinds on every theme change.
+  readonly property var contentColors: Model.contentPalette({
+    surface: Color.popups.background,
+    text: Color.popups.text,
+    foreground: Color.foreground,
+    accent: Color.accent,
+    urgent: "#e05c5c",
+    ok: "#6fc276"
+  })
+  readonly property color contentForeground: root.contentColors.text
+  readonly property color textSecondary: root.contentColors.secondary
+  readonly property color textTertiary: root.contentColors.tertiary
+  readonly property color textDecor: root.contentColors.decor
+  readonly property color accentColor: root.contentColors.accent
+  readonly property color urgentColor: root.contentColors.urgent
+  readonly property color okColor: root.contentColors.ok
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
 
   function open() {
@@ -206,14 +218,7 @@ Panel {
   }
 
   function priorityColor(priority) {
-    switch (priority) {
-      case 1: return "#6fc276"
-      case 2: return "#d2b14f"
-      case 3: return "#e08f3c"
-      case 4: return "#e05c5c"
-      case 5: return "#ff4d6d"
-      default: return "transparent"
-    }
+    return root.contentColors.priority(priority)
   }
 
   // ---- Settings view. The gear button toggles it; everything writes back
@@ -639,7 +644,7 @@ Panel {
                 : root.treeView ? "PROJECTS" : "TODOS"
               textFormat: Text.PlainText
               elide: Text.ElideRight
-              color: Qt.darker(root.contentForeground, 1.5)
+              color: root.textTertiary
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
               font.letterSpacing: 1.2
@@ -659,7 +664,7 @@ Panel {
                 if (root.loadError !== "") return "Load failed"
                 return ""
               }
-              color: root.loadError !== "" ? root.urgentColor : Qt.darker(root.contentForeground, 1.5)
+              color: root.loadError !== "" ? root.urgentColor : root.textTertiary
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
             }
@@ -745,7 +750,7 @@ Panel {
                 ? "New todo in " + root.addTargetTitle + "  ·  Enter to add, Esc to close"
                 : "No project to add to yet. Sync first."
               textFormat: Text.PlainText
-              color: Qt.darker(root.contentForeground, 1.5)
+              color: root.textTertiary
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
@@ -914,7 +919,7 @@ Panel {
                   width: parent.width
                   text: "Settings → API Tokens page to generate a token."
                   textFormat: Text.PlainText
-                  color: Qt.darker(root.contentForeground, 1.5)
+                  color: root.textTertiary
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
@@ -951,7 +956,7 @@ Panel {
                   visible: root.testStatus === "ok" || root.testStatus === "error"
                   text: root.testMessage
                   textFormat: Text.PlainText
-                  color: root.testStatus === "ok" ? "#6fc276" : root.urgentColor
+                  color: root.testStatus === "ok" ? root.okColor : root.urgentColor
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
@@ -991,7 +996,7 @@ Panel {
                       ? "Only the project picked below, grouped by due date."
                       : "All open todos in one list, grouped by due date."
                   textFormat: Text.PlainText
-                  color: Qt.darker(root.contentForeground, 1.5)
+                  color: root.textTertiary
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
@@ -1015,7 +1020,7 @@ Panel {
                   width: parent.width
                   text: root.hasConfig ? "No projects loaded yet. Press sync, then come back." : "Connect to Vikunja first."
                   textFormat: Text.PlainText
-                  color: Qt.darker(root.contentForeground, 1.5)
+                  color: root.textTertiary
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
@@ -1060,7 +1065,7 @@ Panel {
                           width: Style.space(6)
                           height: width
                           radius: width / 2
-                          color: pickRow.modelData.color !== "" ? pickRow.modelData.color : Qt.darker(root.contentForeground, 1.8)
+                          color: pickRow.modelData.color !== "" ? pickRow.modelData.color : root.textDecor
                         }
 
                         Text {
@@ -1176,7 +1181,7 @@ Panel {
                 Text {
                   width: parent.width
                   text: "Seconds between automatic refreshes."
-                  color: Qt.darker(root.contentForeground, 1.5)
+                  color: root.textTertiary
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
                 }
@@ -1279,7 +1284,7 @@ Panel {
                       radius: Style.cornerRadius > 0 ? Style.space(4) : 0
                       color: "transparent"
                       border.width: 1
-                      border.color: Qt.darker(root.contentForeground, 2.2)
+                      border.color: root.textDecor
 
                       Text {
                         id: keyText
@@ -1303,7 +1308,7 @@ Panel {
                       anchors.verticalCenter: keyChip.verticalCenter
                       text: modelData.what
                       textFormat: Text.PlainText
-                      color: Qt.darker(root.contentForeground, 1.3)
+                      color: root.textSecondary
                       font.family: root.contentFontFamily
                       font.pixelSize: Style.font.caption
                       wrapMode: Text.WordWrap
@@ -1316,7 +1321,7 @@ Panel {
                   topPadding: Style.space(2)
                   text: "Keys match Vikunja's own shortcuts where Vikunja has one. Mouse: click a todo to open it, click its box or right-click it to mark it done. Right-click the bar icon to complete the next todo."
                   textFormat: Text.PlainText
-                  color: Qt.darker(root.contentForeground, 1.5)
+                  color: root.textTertiary
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
@@ -1368,7 +1373,7 @@ Panel {
                 horizontalAlignment: Text.AlignHCenter
                 text: root.loadError
                 textFormat: Text.PlainText
-                color: Qt.darker(root.contentForeground, 1.35)
+                color: root.textSecondary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.WordWrap
@@ -1430,7 +1435,7 @@ Panel {
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: ""
-                color: Qt.darker(root.contentForeground, 1.5)
+                color: root.textTertiary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.display
               }
@@ -1453,7 +1458,7 @@ Panel {
                   ? "Set your Vikunja instance URL to load your todos."
                   : "Store your Vikunja API token to load your todos."
                 textFormat: Text.PlainText
-                color: Qt.darker(root.contentForeground, 1.35)
+                color: root.textSecondary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.WordWrap
@@ -1510,7 +1515,7 @@ Panel {
 
                   Text {
                     text: "NEXT"
-                    color: Qt.darker(root.contentForeground, 1.5)
+                    color: root.textTertiary
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.caption
                     font.letterSpacing: 1.2
@@ -1524,7 +1529,7 @@ Panel {
                       ? Model.dueDateLabel(root.next, root.now) + (root.next.isRepeating ? " \uf01e" : "")
                       : ""
                     textFormat: Text.PlainText
-                    color: Qt.darker(root.contentForeground, 1.4)
+                    color: root.textSecondary
                     font.family: root.contentFontFamily
                     font.pixelSize: Style.font.caption
                     font.bold: true
@@ -1547,7 +1552,7 @@ Panel {
                   visible: root.next ? root.next.projectTitle !== "" : false
                   text: root.next ? root.next.projectTitle : ""
                   textFormat: Text.PlainText
-                  color: Qt.darker(root.contentForeground, 1.4)
+                  color: root.textSecondary
                   font.family: root.contentFontFamily
                   font.pixelSize: Style.font.bodySmall
                   wrapMode: Text.WordWrap
@@ -1621,7 +1626,7 @@ Panel {
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: ""
-                color: Qt.darker(root.contentForeground, 1.6)
+                color: root.textTertiary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.display
               }
@@ -1629,7 +1634,7 @@ Panel {
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: "No open todos"
-                color: Qt.darker(root.contentForeground, 1.3)
+                color: root.textSecondary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.body
                 font.bold: true
@@ -1638,7 +1643,7 @@ Panel {
               Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: "You are all caught up."
-                color: Qt.darker(root.contentForeground, 1.6)
+                color: root.textTertiary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
               }
@@ -1786,7 +1791,7 @@ Panel {
                                   && taskRow.todo.projectId === root.hostWidget.projectId)
                               text: taskRow.todo.projectTitle
                               textFormat: Text.PlainText
-                              color: Qt.darker(root.contentForeground, 1.45)
+                              color: root.textSecondary
                               font.family: root.contentFontFamily
                               font.pixelSize: Style.font.caption
                               elide: Text.ElideRight
@@ -1805,7 +1810,7 @@ Panel {
                             textFormat: Text.PlainText
                             color: groupItem.group.key === Model.GROUP_OVERDUE
                               ? root.urgentColor
-                              : Qt.darker(root.contentForeground, 1.35)
+                              : root.textSecondary
                             font.family: root.contentFontFamily
                             font.pixelSize: Style.font.caption
                           }
@@ -1817,7 +1822,7 @@ Panel {
                               && groupItem.group.key !== Model.GROUP_OVERDUE
                             text: "\uf01e"
                             textFormat: Text.PlainText
-                            color: Qt.darker(root.contentForeground, 1.35)
+                            color: root.textSecondary
                             font.family: root.contentFontFamily
                             font.pixelSize: Style.font.caption
                           }
@@ -1874,7 +1879,7 @@ Panel {
               anchors.horizontalCenter: parent.horizontalCenter
               text: "…and " + root.treeHidden + " more. Collapse some projects to see them."
               textFormat: Text.PlainText
-              color: Qt.darker(root.contentForeground, 1.5)
+              color: root.textTertiary
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
             }
@@ -1906,7 +1911,7 @@ Panel {
                 visible: projectRow.row.expandable === true
                 text: I18n.rightToLeft ? "\uf053" : "\uf054"
                 textFormat: Text.PlainText
-                color: Qt.darker(root.contentForeground, 1.4)
+                color: root.textSecondary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
                 rotation: projectRow.row.collapsed ? 0 : (I18n.rightToLeft ? -90 : 90)
@@ -1927,7 +1932,7 @@ Panel {
                 width: Style.space(7)
                 height: width
                 radius: width / 2
-                color: projectRow.row.color ? projectRow.row.color : Qt.darker(root.contentForeground, 1.8)
+                color: projectRow.row.color ? projectRow.row.color : root.textDecor
               }
 
               Text {
@@ -1953,7 +1958,7 @@ Panel {
                 visible: projectRow.row.id > 0 && (projectMouse.containsMouse || projectAddMouse.containsMouse)
                 text: "\uf067"
                 textFormat: Text.PlainText
-                color: projectAddMouse.containsMouse ? root.accentColor : Qt.darker(root.contentForeground, 1.3)
+                color: projectAddMouse.containsMouse ? root.accentColor : root.textSecondary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.bodySmall
                 z: 2
@@ -1975,7 +1980,7 @@ Panel {
                 anchors.verticalCenter: parent.verticalCenter
                 text: projectRow.row.count > 0 ? String(projectRow.row.count) : ""
                 textFormat: Text.PlainText
-                color: Qt.darker(root.contentForeground, 1.5)
+                color: root.textTertiary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
               }
@@ -2053,7 +2058,7 @@ Panel {
                 anchors.verticalCenter: parent.verticalCenter
                 text: Model.relativeDue(treeTask.todo, root.now) + (treeTask.todo.isRepeating ? " \uf01e" : "")
                 textFormat: Text.PlainText
-                color: treeTask.overdue ? root.urgentColor : Qt.darker(root.contentForeground, 1.4)
+                color: treeTask.overdue ? root.urgentColor : root.textSecondary
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.caption
               }
@@ -2084,7 +2089,7 @@ Panel {
               anchors.horizontalCenter: parent.horizontalCenter
               text: "…and " + root.hiddenCount + " more"
               textFormat: Text.PlainText
-              color: Qt.darker(root.contentForeground, 1.5)
+              color: root.textTertiary
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
             }
@@ -2110,7 +2115,7 @@ Panel {
       textFormat: Text.PlainText
       color: box.done || boxMouse.containsMouse
         ? root.accentColor
-        : Qt.darker(root.contentForeground, box.rowHot ? 1.15 : 1.6)
+        : (box.rowHot ? root.textSecondary : root.textTertiary)
       font.family: root.contentFontFamily
       font.pixelSize: Style.font.body
     }

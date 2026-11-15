@@ -128,3 +128,5 @@ export {
   replaceCollapsed,
   serializeCollapsedState
 } from "./model/projects.mjs"
+
+export { contentPalette } from "./model/palette.mjs"
